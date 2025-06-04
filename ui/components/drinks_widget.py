@@ -351,6 +351,13 @@ class DrinksWidget(QWidget):
         if self.drinks_data:
             self.data_changed.emit()
     
+    def _disconnect_signals_safe(self):
+        """Thread-sichere Signal-Trennung"""
+        try:
+            self.drinks_table.cellChanged.disconnect()
+        except (TypeError, RuntimeError):
+            pass  # Signal war bereits getrennt oder Widget zerstört
+    
     def setup_ui(self):
         """Erstellt die UI-Komponenten"""
         layout = QVBoxLayout(self)
@@ -579,10 +586,7 @@ class DrinksWidget(QWidget):
     def update_table(self):
         """Aktualisiert die Getränke-Tabelle"""
         # Signal temporär disconnecten um infinite loops zu vermeiden
-        try:
-            self.drinks_table.cellChanged.disconnect(self.on_cell_changed)
-        except TypeError:
-            pass
+        self._disconnect_signals_safe()
         
         self.drinks_table.setRowCount(len(self.drinks_data))
         

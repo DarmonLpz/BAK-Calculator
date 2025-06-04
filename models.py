@@ -27,6 +27,8 @@ class Person:
     
     def calculate_bmi(self) -> float:
         """Berechnet den BMI-Wert"""
+        if self.height <= 0:
+            return 0.0
         height_m = self.height / 100
         return self.weight / (height_m * height_m)
 

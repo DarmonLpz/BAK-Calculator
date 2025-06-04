@@ -19,6 +19,16 @@ class BAKChartWidget(QWidget):
         self.setup_ui()
         self.chart_data = {}
     
+    def cleanup(self):
+        """Räumt Matplotlib-Ressourcen auf"""
+        self.figure.clear()
+        plt.close(self.figure)
+    
+    def closeEvent(self, event):
+        """Cleanup beim Schließen"""
+        self.cleanup()
+        super().closeEvent(event)
+    
     def setup_ui(self):
         """Erstellt die Chart-UI"""
         layout = QVBoxLayout(self)
@@ -50,22 +60,13 @@ class BAKChartWidget(QWidget):
             self.canvas.draw()
             return
         
-        # Debug: Überprüfe Datenstruktur
-        print("=== DEBUG: Chart Update ===")
-        print(f"Anzahl Modelle: {len(results)}")
-        for model, result in results.items():
-            print(f"Modell: {model}")
-            print(f"  Peak BAK: {result.get('peak_bac', 'N/A')}")
-            print(f"  Current BAK: {result.get('current_bac', 'N/A')}")
-            if 'bac_values' in result:
-                print(f"  BAC Values Count: {len(result['bac_values'])}")
-                if len(result['bac_values']) > 0:
-                    first_val = result['bac_values'][0]
-                    last_val = result['bac_values'][-1]
-                    print(f"  First value: {first_val}")
-                    print(f"  Last value: {last_val}")
-            else:
-                print("  No bac_values found!")
+        # Datenstruktur validieren
+        if not isinstance(results, dict):
+            ax.text(0.5, 0.5, 'Ungültige Datenstruktur', 
+                   horizontalalignment='center', verticalalignment='center',
+                   transform=ax.transAxes, fontsize=14, color='red')
+            self.canvas.draw()
+            return
         
         # Farben für verschiedene Modelle
         colors = ['#2196F3', '#FF9800', '#4CAF50', '#9C27B0']

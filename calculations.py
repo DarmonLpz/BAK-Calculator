@@ -1,32 +1,6 @@
-from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import List, Tuple
-import numpy as np
-
-@dataclass
-class Person:
-    gender: str  # "Männlich" oder "Weiblich"
-    age: int
-    height: int  # in cm
-    weight: float  # in kg
-    body_fat: float = 0.0  # in %
-    drinking_habit: str = "Selten/Nie"  # "Selten/Nie", "Gelegentlich", "Regelmäßig", "Häufig"
-
-@dataclass
-class Drink:
-    name: str
-    volume: float  # in ml
-    alcohol_content: float  # in %
-    time: datetime
-
-@dataclass
-class CalculationSettings:
-    model: str  # "Widmark", "Watson", "Forrest", "Seidl"
-    resorption_time: str  # "Auto" oder "Manuell"
-    resorption_deficit: float  # in %
-    elimination_rate: str  # "Auto" oder "Manuell"
-    manual_elimination_rate: float  # in ‰/h
-    meal_status: str  # "Nüchtern" oder "Mit Mahlzeit"
+from models import Person, Drink, CalculationSettings, BACResult, BAKModel, Gender, ResorptionMode
 
 class BACCalculator:
     def __init__(self):
@@ -105,35 +79,35 @@ class BACCalculator:
     
     def _calculate_distribution_factor(self) -> float:
         """Berechnet den Verteilungsfaktor r"""
-        if self.settings.model == "Watson":
+        if hasattr(self.settings, 'model') and self.settings.model == "Watson":
             # Watson-Gleichung für Körperwasseranteil
-            if self.person.gender == "Männlich":
+            if self.person.gender == Gender.MALE:
                 tbw = 2.447 - 0.09516 * self.person.age + 0.1074 * self.person.height + 0.3362 * self.person.weight
             else:
                 tbw = -2.097 + 0.1069 * self.person.height + 0.2466 * self.person.weight
             return tbw / (0.8 * self.person.weight)
         else:
             # Standard-Widmark-Faktor
-            return 0.7 if self.person.gender == "Männlich" else 0.6
+            return 0.7 if self.person.gender == Gender.MALE else 0.6
     
     def _calculate_elimination_rate(self) -> float:
         """Berechnet die Abbaurate in ‰/h"""
-        if self.settings.elimination_rate == "Auto":
+        if hasattr(self.settings, 'elimination_rate') and self.settings.elimination_rate == "Auto":
             base_rate = 0.15  # Standardwert
             # Anpassung nach Geschlecht
-            if self.person.gender == "Weiblich":
+            if self.person.gender == Gender.FEMALE:
                 base_rate *= 1.1
             # Anpassung nach Trinkgewohnheit
-            if self.person.drinking_habit == "Häufig":
+            if hasattr(self.person, 'drinking_habit') and self.person.drinking_habit == "Häufig":
                 base_rate *= 1.25
             return base_rate
         else:
-            return self.settings.manual_elimination_rate / 100  # Umrechnung in ‰/h
+            return getattr(self.settings, 'manual_elimination_rate', 0.15) / 100  # Umrechnung in ‰/h
     
     def _calculate_resorption_time(self) -> float:
         """Berechnet die Resorptionszeit in Stunden"""
-        if self.settings.resorption_time == "Auto":
-            return 1.0 if self.settings.meal_status == "Nüchtern" else 1.5
+        if hasattr(self.settings, 'resorption_time') and self.settings.resorption_time == "Auto":
+            return 1.0 if getattr(self.settings, 'meal_status', '') == "Nüchtern" else 1.5
         else:
             return 1.0  # Standardwert
     

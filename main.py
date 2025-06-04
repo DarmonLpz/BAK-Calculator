@@ -31,7 +31,7 @@ def setup_application():
         icon_path = os.path.join(os.path.dirname(__file__), 'resources', 'icons', 'app_icon.png')
         if os.path.exists(icon_path):
             app.setWindowIcon(QIcon(icon_path))
-    except:
+    except Exception:
         pass  # Kein Icon verfügbar
     
     return app

@@ -1,6 +1,5 @@
 from PyQt6.QtCore import QObject, pyqtSignal, QTimer
 from typing import Dict, List, Optional
-import threading
 from datetime import datetime, timedelta
 from models import Person, Drink, CalculationSettings, Gender, BAKModel, ResorptionMode
 from calculations import BACCalculator
@@ -158,7 +157,7 @@ class CalculationController(QObject):
         
         # DEBUG: Alkoholmenge ausgeben
         total_alcohol = sum(drink.get_alcohol_grams() for drink in drinks)
-        print(f"DEBUG: Gesamtalkohol für {model.value}: {total_alcohol:.1f}g")
+        # Gesamtalkohol berechnet: {total_alcohol:.1f}g
         
         # Geschlechtsabhängige Grundwerte
         is_male = person.gender == Gender.MALE
@@ -199,7 +198,7 @@ class CalculationController(QObject):
             r_factor = 0.68 if is_male else 0.55
             elimination_rate = 0.15 if is_male else 0.13
         
-        print(f"DEBUG: {model.value} - r_factor: {r_factor:.3f}, elimination_rate: {elimination_rate:.3f}‰/h")
+        # Faktoren: r={r_factor:.3f}, elimination={elimination_rate:.3f}‰/h
         
         # Einzelgetränk-Berechnung mit separater Pharmakodynamik
         now = datetime.now()
@@ -223,7 +222,7 @@ class CalculationController(QObject):
             # Peak-Zeit für dieses Getränk
             drink_peak_time = drink_time + timedelta(hours=resorption_time_hours)
             
-            print(f"DEBUG: Getränk {i+1}: {drink_alcohol:.1f}g → Peak {drink_peak_bac:.3f}‰ um {drink_peak_time.strftime('%H:%M')}")
+            # Getränk {i+1}: {drink_alcohol:.1f}g → Peak {drink_peak_bac:.3f}‰
             
             drink_contributions.append({
                 'drink_index': i,
@@ -265,7 +264,7 @@ class CalculationController(QObject):
                 
             current_time += time_step
         
-        print(f"DEBUG: Generiert {len(bac_values)} BAK-Datenpunkte von {start_time.strftime('%H:%M')} bis {(start_time + timedelta(minutes=len(bac_values)*10)).strftime('%H:%M')}")
+        # Generiert {len(bac_values)} BAK-Datenpunkte
         
         # Aktuelle BAK und Peak-BAK berechnen
         current_bac = 0.0
@@ -279,7 +278,7 @@ class CalculationController(QObject):
                 peak_bac = bac_value
                 peak_time = time_point
         
-        print(f"DEBUG: current_bac={current_bac}, now={now}, drinks={[d['consumption_time'] for d in drink_contributions]}")
+        # Aktuelle BAK berechnet: {current_bac:.3f}‰
         
         # Zeiten berechnen
         # Zeit bis unter 0.5‰

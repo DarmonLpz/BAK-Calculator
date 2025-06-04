@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from typing import List
-from models import Person, Drink, CalculationSettings, BACResult, BAKModel
+from models import Person, Drink, CalculationSettings, BACResult, BAKModel, Gender, ResorptionMode
 
 class BACCalculator:
     def __init__(self):
@@ -26,10 +26,9 @@ class BACCalculator:
             raise ValueError("Nicht alle erforderlichen Daten sind vorhanden")
         
         results = []
-        for model in BAKModel:
-            if model == self.settings.model:
-                result = self._calculate_single_model(model)
-                results.append(result)
+        for model in self.settings.models:
+            result = self._calculate_single_model(model)
+            results.append(result)
         
         return results
     
@@ -39,7 +38,7 @@ class BACCalculator:
         total_alcohol = sum(drink.get_alcohol_grams() for drink in self.drinks)
         
         # Verteilungsfaktor r nach Widmark
-        r = 0.7 if self.person.gender == "männlich" else 0.6
+        r = 0.7 if self.person.gender == Gender.MALE else 0.6
         
         # Körpergewicht in kg
         weight = self.person.weight

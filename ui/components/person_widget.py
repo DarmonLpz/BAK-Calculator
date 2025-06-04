@@ -303,7 +303,7 @@ Der BMI korreliert mit der Körperzusammensetzung:<br>
         try:
             weight = self.weight_spin.value()
             height = self.height_spin.value() / 100.0
-            if height > 0:
+            if height > 0 and weight > 0:
                 bmi = weight / (height * height)
                 
                 # BMI-Kategorien mit Beschreibung
@@ -334,7 +334,7 @@ Der BMI korreliert mit der Körperzusammensetzung:<br>
             else:
                 self.bmi_display.setText("BMI: -- (Ungültige Eingabe)")
                 self.bmi_display.setStyleSheet("color: #666666;")
-        except:
+        except (ValueError, ZeroDivisionError, OverflowError) as e:
             self.bmi_display.setText("BMI: -- (Berechnungsfehler)")
             self.bmi_display.setStyleSheet("color: #666666;")
     
