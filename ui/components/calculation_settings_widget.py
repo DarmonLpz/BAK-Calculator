@@ -371,16 +371,18 @@ Nahrung beeinflusst massiv die Alkoholresorption:<br>
         self.meal_combo.currentTextChanged.connect(self.data_changed.emit)
     
     def set_default_values(self):
-        """Setzt Standardwerte"""
-        # Widmark-Modell als Standard
+        """Setzt realistische Startwerte für eine typische Berechnung"""
+        # Drei wissenschaftliche Hauptmodelle für Vergleich aktivieren
         self.model_checkboxes["Widmark"].setChecked(True)
+        self.model_checkboxes["Watson"].setChecked(True)
+        self.model_checkboxes["Forrest"].setChecked(True)
         
-        # Standard-Einstellungen
-        self.resorption_time_combo.setCurrentText("Auto (abhängig von Mahlzeit)")
-        self.resorption_deficit_slider.setValue(10)
+        # Realistische Einstellungen für typischen Abend
+        self.resorption_time_combo.setCurrentText("Normal (45 min)")
+        self.resorption_deficit_slider.setValue(12)  # Leicht erhöht für Realismus
         self.elimination_rate_combo.setCurrentText("Auto (geschlechtsabhängig)")
         self.manual_elimination_slider.setValue(15)
-        self.meal_combo.setCurrentText("Nüchtern")
+        self.meal_combo.setCurrentText("Leichte Mahlzeit")
         
         # Label aktualisieren
         self.update_resorption_deficit_label()

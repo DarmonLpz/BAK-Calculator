@@ -288,12 +288,12 @@ Der BMI korreliert mit der Körperzusammensetzung:<br>
         self.habit_combo.currentTextChanged.connect(self.data_changed.emit)
     
     def set_default_values(self):
-        """Setzt Standardwerte"""
+        """Setzt realistische Startwerte für eine Beispielperson"""
         self.gender_combo.setCurrentText("Männlich")
-        self.age_spin.setValue(30)
-        self.height_spin.setValue(180)
-        self.weight_spin.setValue(80.0)
-        self.body_fat_slider.setValue(20)
+        self.age_spin.setValue(28)
+        self.height_spin.setValue(175)
+        self.weight_spin.setValue(75.0)
+        self.body_fat_slider.setValue(18)
         self.habit_combo.setCurrentText("Gelegentlich")
         self.update_bmi()
         self.update_body_fat_label()

@@ -715,20 +715,26 @@ class DrinksWidget(QWidget):
         self.update_summary()
     
     def add_default_drinks(self):
-        """Fügt Standard-Getränke für Tests hinzu"""
+        """Fügt realistische Beispiel-Getränke hinzu"""
         today = datetime.now().date()
         default_drinks = [
             {
                 'name': 'Bier (Pils)',
                 'volume': 500,
                 'alcohol_content': 4.8,
-                'time': datetime.combine(today, time(hour=20, minute=0))
+                'time': datetime.combine(today, time(hour=19, minute=30))
+            },
+            {
+                'name': 'Bier (Pils)',
+                'volume': 500,
+                'alcohol_content': 4.8,
+                'time': datetime.combine(today, time(hour=20, minute=45))
             },
             {
                 'name': 'Wein (Rot)',
                 'volume': 200,
                 'alcohol_content': 12.5,
-                'time': datetime.combine(today, time(hour=21, minute=0))
+                'time': datetime.combine(today, time(hour=22, minute=15))
             }
         ]
         

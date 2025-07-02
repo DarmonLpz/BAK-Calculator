@@ -31,6 +31,9 @@ class MainWindow(QMainWindow):
         self.setup_connections()
         self.setup_theme()
         
+        # Startwerte für realistisches Beispiel setzen
+        self.load_default_example_data()
+        
         # Initialdaten an Controller übergeben
         self.on_person_data_changed()
         self.on_settings_data_changed()
@@ -540,6 +543,14 @@ class MainWindow(QMainWindow):
                               <li>F1: Diese Hilfe</li>
                               </ul>
                               """)
+    
+    def load_default_example_data(self):
+        """Lädt realistische Startwerte für ein Beispielszenario"""
+        # Beispiel-Getränke hinzufügen
+        self.drinks_widget.add_default_drinks()
+        
+        # Statusmeldung
+        self.statusBar().showMessage("Beispieldaten geladen - bereit für automatische Berechnung", 3000)
     
     def load_user_preferences(self):
         """Lädt Benutzereinstellungen"""
