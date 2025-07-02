@@ -388,14 +388,16 @@ class ResultsWidget(QWidget):
             self.clear_results()
             return
         
-        # BAK-Zeitpunkt und Titel bestimmen
+        # BAK-Messzeitpunkt und Titel bestimmen
         first_result = next(iter(results.values()))
+        timing_description = first_result.get('timing_description', 'Aktueller Zeitpunkt')
         bac_calculation_time = first_result.get('bac_calculation_time')
+        
         if bac_calculation_time:
             time_str = bac_calculation_time.strftime('%d.%m.%Y %H:%M')
-            self.current_bac_group.setTitle(f"BAK am {time_str}")
+            self.current_bac_group.setTitle(f"BAK - {timing_description}")
         else:
-            self.current_bac_group.setTitle("Aktuelle BAK")
+            self.current_bac_group.setTitle(f"BAK - {timing_description}")
         
         # Aktuelle BAK berechnen (Durchschnitt aller Modelle)
         current_bac_values = [result.get('current_bac', 0.0) for result in results.values()]
@@ -484,12 +486,13 @@ class ResultsWidget(QWidget):
         # Dynamischen BAK-Header setzen
         if results:
             first_result = next(iter(results.values()))
+            timing_description = first_result.get('timing_description', 'Aktueller Zeitpunkt')
             bac_calculation_time = first_result.get('bac_calculation_time')
             if bac_calculation_time:
-                time_str = bac_calculation_time.strftime('%H:%M')
-                self.table_headers[1] = f"BAK {time_str}"
+                datetime_str = bac_calculation_time.strftime('%d.%m. %H:%M')
+                self.table_headers[1] = f"BAK {datetime_str}"
             else:
-                self.table_headers[1] = "BAK"
+                self.table_headers[1] = f"BAK ({timing_description})"
             self.results_table.setHorizontalHeaderLabels(self.table_headers)
         
         self.results_table.setRowCount(len(results))
@@ -583,10 +586,24 @@ class ResultsWidget(QWidget):
             self.detail_text.setPlainText("Keine Berechnung möglich. Bitte geben Sie alle erforderlichen Daten ein.")
             return
         
+        # Messzeitpunkt-Information aus den Ergebnissen extrahieren
+        first_result = next(iter(results.values()))
+        timing_description = first_result.get('timing_description', 'Aktueller Zeitpunkt')
+        timing_mode = first_result.get('timing_mode', 'Jetzt (aktuell)')
+        bac_calculation_time = first_result.get('bac_calculation_time')
+        
         # HTML-formatierte ausführliche Berechnung
-        html_content = """
+        html_content = f"""
         <h2>📊 Wissenschaftliche BAK-Berechnung</h2>
         <p><i>Evidenzbasierte Pharmakodynamik und forensische Alkoholkennzeichnung nach internationalen Standards</i></p>
+        
+        <div style="background-color: #e3f2fd; padding: 10px; border-radius: 5px; margin: 10px 0;">
+        <h3>⏰ BAK-Messzeitpunkt</h3>
+        <p><b>Gewählter Modus:</b> {timing_mode}</p>
+        <p><b>Messzeitpunkt:</b> {timing_description}</p>
+        <p><b>Datum/Uhrzeit:</b> {bac_calculation_time.strftime('%d.%m.%Y %H:%M:%S') if bac_calculation_time else 'N/A'}</p>
+        <p><i>⚠️ Alle nachfolgenden BAK-Werte und Berechnungen beziehen sich auf diesen spezifischen Zeitpunkt!</i></p>
+        </div>
         
         <h3>📚 Wissenschaftliche Grundlagen</h3>
         <p>Die Blutalkoholkonzentrations-Berechnung basiert auf etablierten pharmakokinetischen Modellen der forensischen Toxikologie. 
@@ -725,9 +742,16 @@ class ResultsWidget(QWidget):
             
             # Einzelgetränk-Details anzeigen
             if individual_contributions:
-                html_content += """
+                html_content += f"""
                 <h4>🍺 Einzelgetränk-Analyse</h4>
                 <p>Jedes Getränk wird separat mit eigener Resorptions- und Eliminationskurve berechnet:</p>
+                
+                <div style="background-color: #e3f2fd; padding: 10px; margin: 10px 0; border-radius: 5px; border-left: 4px solid #2196F3;">
+                <b>📅 Berechnung der aktuellen Beiträge:</b><br>
+                <b>Messzeitpunkt:</b> {timing_description}<br>
+                <b>Datum/Zeit:</b> {bac_calculation_time.strftime('%d.%m.%Y %H:%M:%S') if bac_calculation_time else 'N/A'}<br>
+                <i>Alle "Aktueller Beitrag"-Werte beziehen sich auf diesen Zeitpunkt</i>
+                </div>
                 
                 <table border="1" cellpadding="8" cellspacing="0" style="border-collapse: collapse; width: 100%; font-size: 11px;">
                 <tr style="background-color: #e3f2fd;">
@@ -737,7 +761,7 @@ class ResultsWidget(QWidget):
                     <th>Peak-BAK</th>
                     <th>Peak-Zeit</th>
                     <th>Resorption</th>
-                    <th>Aktueller Beitrag</th>
+                    <th>Aktueller Beitrag*</th>
                 </tr>
                 """
                 
@@ -767,6 +791,13 @@ class ResultsWidget(QWidget):
                 
                 html_content += f"""
                 </table>
+                
+                <div style="background-color: #fff8e1; padding: 8px; margin: 5px 0; border-left: 3px solid #ff9800; font-size: 10px;">
+                <b>* Hinweis zum "Aktueller Beitrag":</b><br>
+                Alle Werte in der Spalte "Aktueller Beitrag" beziehen sich auf den gewählten Messzeitpunkt:<br>
+                <b>{timing_description}</b> ({bac_calculation_time.strftime('%d.%m.%Y %H:%M:%S') if bac_calculation_time else 'N/A'})<br>
+                Diese Werte zeigen, wie viel jedes einzelne Getränk zum angegebenen Zeitpunkt zur Gesamt-BAK beiträgt.
+                </div>
                 
                 <div style="background-color: #e8f5e8; padding: 10px; margin-top: 10px; border-radius: 5px;">
                 <b>Summe aller Einzelbeiträge:</b> {total_current_contribution:.3f} ‰<br>

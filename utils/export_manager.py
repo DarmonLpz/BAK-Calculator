@@ -100,10 +100,39 @@ class ExportThread(QThread):
         
         print("🔄 Erstelle detaillierte HTML-Berechnung im Export-Manager...")
         
-        # HTML-formatierte ausführliche Berechnung - KOMPLETT IDENTISCH ZU RESULTS WIDGET
-        html_content = """
+        # Messzeitpunkt-Information aus den Ergebnissen extrahieren
+        first_result = next(iter(results.values()))
+        timing_description = first_result.get('timing_description', 'Aktueller Zeitpunkt')
+        timing_mode = first_result.get('timing_mode', 'Jetzt (aktuell)')
+        bac_calculation_time = first_result.get('bac_calculation_time')
+        
+        # HTML-formatierte ausführliche Berechnung - PDF-optimiert
+        html_content = f"""
         <h2>📊 Wissenschaftliche BAK-Berechnung</h2>
         <p><i>Evidenzbasierte Pharmakodynamik und forensische Alkoholkennzeichnung nach internationalen Standards</i></p>
+        
+        <h3>⏰ BAK-Messzeitpunkt</h3>
+        <table border="1" cellpadding="8" cellspacing="0" style="border-collapse: collapse; width: 100%; margin: 10px 0;">
+        <tr style="background-color: #f0f8ff;">
+            <th style="width: 30%;">Parameter</th>
+            <th style="width: 70%;">Wert</th>
+        </tr>
+        <tr>
+            <td><b>Gewählter Modus</b></td>
+            <td>{timing_mode}</td>
+        </tr>
+        <tr>
+            <td><b>Messzeitpunkt</b></td>
+            <td>{timing_description}</td>
+        </tr>
+        <tr>
+            <td><b>Datum/Uhrzeit</b></td>
+            <td>{bac_calculation_time.strftime('%d.%m.%Y %H:%M:%S') if bac_calculation_time else 'N/A'}</td>
+        </tr>
+        <tr style="background-color: #fff3cd;">
+            <td colspan="2"><b>⚠️ Wichtiger Hinweis:</b> Alle nachfolgenden BAK-Werte und Berechnungen beziehen sich auf diesen spezifischen Zeitpunkt!</td>
+        </tr>
+        </table>
         
         <h3>📚 Wissenschaftliche Grundlagen</h3>
         <p>Die Blutalkoholkonzentrations-Berechnung basiert auf etablierten pharmakokinetischen Modellen der forensischen Toxikologie. 
@@ -242,9 +271,26 @@ class ExportThread(QThread):
             
             # Einzelgetränk-Details anzeigen
             if individual_contributions:
-                html_content += """
+                # Messzeitpunkt-Information extrahieren
+                timing_info = result.get('timing_description', 'Aktueller Zeitpunkt')
+                bac_calculation_time = result.get('bac_calculation_time')
+                
+                if bac_calculation_time:
+                    time_str = bac_calculation_time.strftime('%d.%m.%Y %H:%M')
+                    timing_detail = f"zum Zeitpunkt: {time_str}"
+                else:
+                    timing_detail = timing_info
+                
+                html_content += f"""
                 <h4>🍺 Einzelgetränk-Analyse</h4>
                 <p>Jedes Getränk wird separat mit eigener Resorptions- und Eliminationskurve berechnet:</p>
+                
+                <p><b>📅 Berechnung der aktuellen Beiträge:</b></p>
+                <ul>
+                    <li><b>Messzeitpunkt:</b> {timing_info}</li>
+                    <li><b>Datum/Zeit:</b> {timing_detail}</li>
+                    <li><i>Alle "Aktueller Beitrag"-Werte beziehen sich auf diesen Zeitpunkt</i></li>
+                </ul>
                 
                 <table border="1" cellpadding="8" cellspacing="0" style="border-collapse: collapse; width: 100%; font-size: 11px;">
                 <tr style="background-color: #e3f2fd;">
@@ -254,7 +300,7 @@ class ExportThread(QThread):
                     <th>Peak-BAK</th>
                     <th>Peak-Zeit</th>
                     <th>Resorption</th>
-                    <th>Aktueller Beitrag</th>
+                    <th>Aktueller Beitrag*</th>
                 </tr>
                 """
                 
@@ -285,11 +331,16 @@ class ExportThread(QThread):
                 html_content += f"""
                 </table>
                 
-                <div style="background-color: #e8f5e8; padding: 10px; margin-top: 10px; border-radius: 5px;">
-                <b>Summe aller Einzelbeiträge:</b> {total_current_contribution:.3f} ‰<br>
-                <b>Berechnete Gesamt-BAK:</b> {result.get('current_bac', 0):.3f} ‰<br>
-                <i>Minimale Abweichung durch Rundungsfehler ist normal</i>
-                </div>
+                <p><b>* Hinweis zum "Aktueller Beitrag":</b></p>
+                <p><i>Alle Werte in der Spalte "Aktueller Beitrag" beziehen sich auf den gewählten Messzeitpunkt: <b>{timing_info}</b> ({timing_detail}). Diese Werte zeigen, wie viel jedes einzelne Getränk zum angegebenen Zeitpunkt zur Gesamt-BAK beiträgt.</i></p>
+                
+                <p><b>Zusammenfassung der Einzelbeiträge:</b></p>
+                <ul>
+                    <li><b>Summe aller Einzelbeiträge:</b> {total_current_contribution:.3f} ‰</li>
+                    <li><b>Berechnete Gesamt-BAK:</b> {result.get('current_bac', 0):.3f} ‰</li>
+                    <li><b>Messzeitpunkt:</b> {result.get('timing_description', 'Aktueller Zeitpunkt')}</li>
+                    <li><i>Minimale Abweichung durch Rundungsfehler ist normal</i></li>
+                </ul>
                 
                 <h5>📈 Pharmakodynamische Prinzipien</h5>
                 <ul>
@@ -303,10 +354,10 @@ class ExportThread(QThread):
             # Ergebnisse mit Konfidenzintervallen
             html_content += f"""
             <h4>📋 Quantitative Ergebnisse</h4>
-            <div style="background-color: #f9f9f9; padding: 15px; border-left: 4px solid #2196F3;">
             <ul>
                 <li><b>Peak-BAK:</b> {result.get('peak_bac', 0):.3f} ‰ ± 0.02 ‰ (95% CI)</li>
-                <li><b>Aktuelle BAK:</b> {result.get('current_bac', 0):.3f} ‰ ± 0.015 ‰</li>
+                <li><b>BAK zum Messzeitpunkt:</b> {result.get('current_bac', 0):.3f} ‰ ± 0.015 ‰</li>
+                <li><b>Messzeitpunkt:</b> {result.get('timing_description', 'Aktueller Zeitpunkt')}</li>
                 <li><b>Peak-Zeit:</b> {result.get('peak_time', '--')} (Resorptionsmaximum)</li>
                 <li><b>Eliminationsdauer:</b> {result.get('elimination_time', '--')}</li>
             """
@@ -319,7 +370,6 @@ class ExportThread(QThread):
             
             html_content += """
             </ul>
-            </div>
             """
             
             # Wissenschaftliche Referenzen für dieses Modell
@@ -337,7 +387,6 @@ class ExportThread(QThread):
         html_content += """
         <hr style="margin: 20px 0;">
         <h3>⚠️ Methodologische Limitationen</h3>
-        <div style="background-color: #fff3cd; padding: 15px; border: 1px solid #ffeaa7;">
         <h4>Modell-Unsicherheiten</h4>
         <ul>
             <li><b>Inter-individuelle Variabilität:</b> ±20-30% (Genetik, Enzymoproteine)</li>
@@ -345,7 +394,6 @@ class ExportThread(QThread):
             <li><b>Resorptionskinetik:</b> Mageninhalt, Trinkgeschwindigkeit, CO₂</li>
             <li><b>Analytische Präzision:</b> ±0.005-0.02‰ je nach Methode</li>
         </ul>
-        </div>
         
         <h3>⚖️ Forensisch-rechtliche Grenzwerte</h3>
         <table border="1" cellpadding="8" cellspacing="0" style="border-collapse: collapse; width: 100%;">
@@ -999,7 +1047,6 @@ class ExportThread(QThread):
             matplotlib.use('Agg')  # Non-interactive backend
             import matplotlib.pyplot as plt
             import matplotlib.dates as mdates
-            from datetime import datetime
             
             fig, ax = plt.subplots(figsize=(12, 8))
             

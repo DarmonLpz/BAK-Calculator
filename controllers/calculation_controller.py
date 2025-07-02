@@ -165,7 +165,7 @@ class CalculationController(QObject):
         return results
     
     def _mock_calculation(self, person, drinks, model, user_elimination_rate, drinking_habit):
-        """Realistische Berechnung mit Einzelgetränk-Abbau verschiedener BAK-Modelle"""
+        """Realistische Berechnung mit GLOBALER Elimination (nicht pro Getränk)"""
         
         # DEBUG: Alkoholmenge ausgeben
         total_alcohol = sum(drink.get_alcohol_grams() for drink in drinks)
@@ -210,19 +210,19 @@ class CalculationController(QObject):
             r_factor = 0.68 if is_male else 0.55
             default_elimination = 0.15 if is_male else 0.13
         
-        # Benutzer-Einstellung für Elimination verwenden oder Standard
+        # GLOBALE Eliminationsrate bestimmen (Benutzervorgabe oder modellspezifisch)
         if self.settings_data.get('elimination_rate') == 'Auto (modellspezifisch)':
-            elimination_rate = default_elimination
+            global_elimination_rate = default_elimination
         else:
-            elimination_rate = user_elimination_rate
+            global_elimination_rate = user_elimination_rate
         
         # Trinkgewohnheiten-Faktor anwenden (Enzyminduktion)
         habit_factor = self._get_drinking_habit_factor(drinking_habit)
-        elimination_rate *= habit_factor
+        global_elimination_rate *= habit_factor
         
-        # Debug: Faktoren: r={r_factor:.3f}, elimination={elimination_rate:.3f}‰/h
+        # Debug: Faktoren: r={r_factor:.3f}, GLOBALE elimination={global_elimination_rate:.3f}‰/h
         
-        # Einzelgetränk-Berechnung mit separater Pharmakodynamik
+        # Einzelgetränk-Resorption berechnen (ohne individuelle Elimination)
         now = datetime.now()
         drink_contributions = []
         
@@ -230,7 +230,7 @@ class CalculationController(QObject):
             drink_alcohol = drink.get_alcohol_grams()
             drink_time = drink.time
             
-            # Einzelgetränk Peak-BAK
+            # Einzelgetränk Peak-BAK (nur Resorption, keine Elimination)
             drink_peak_bac = drink_alcohol / (person.weight * r_factor)
             
             # Resorptionszeit basierend auf Benutzer-Einstellung
@@ -253,18 +253,23 @@ class CalculationController(QObject):
             # Peak-Zeit für dieses Getränk
             drink_peak_time = drink_time + timedelta(hours=resorption_time_hours)
             
-            # Getränk {i+1}: {drink_alcohol:.1f}g → Peak {drink_peak_bac:.3f}‰
+            # Resorptionsdefizit berücksichtigen (reduziert Peak-BAK)
+            resorption_deficit = self.settings_data.get('resorption_deficit', 0) / 100.0
+            adjusted_peak_bac = drink_peak_bac * (1.0 - resorption_deficit)
+            
+            # Getränk {i+1}: {drink_alcohol:.1f}g → Peak {adjusted_peak_bac:.3f}‰
             
             drink_contributions.append({
                 'drink_index': i,
+                'drink_name': drink.name,
                 'alcohol_grams': drink_alcohol,
                 'consumption_time': drink_time,
-                'peak_bac': drink_peak_bac,
+                'peak_bac': adjusted_peak_bac,
                 'peak_time': drink_peak_time,
                 'resorption_hours': resorption_time_hours
             })
         
-        # Gesamtverlauf berechnen: Summation aller Einzelkurven
+        # GLOBALE BAK-Verlauf berechnen mit globaler Elimination
         first_drink_time = min(drink.time for drink in drinks)
         last_drink_time = max(drink.time for drink in drinks)
         
@@ -277,33 +282,86 @@ class CalculationController(QObject):
         time_step = timedelta(minutes=10)  # 10-Minuten-Schritte
         
         while current_time <= end_time:
-            total_bac_at_time = 0.0
+            # 1. Summiere alle Resorptionsbeiträge (ohne individuelle Elimination)
+            total_resorption_bac = 0.0
             
-            # Summiere Beitrag aller Getränke zu diesem Zeitpunkt
             for contrib in drink_contributions:
-                bac_contribution = self._calculate_single_drink_bac(
-                    current_time, contrib, elimination_rate
-                )
-                total_bac_at_time += bac_contribution
+                # Nur Resorption berechnen
+                resorption_contrib = self._calculate_resorption_only(current_time, contrib)
+                total_resorption_bac += resorption_contrib
             
-            bac_values.append((current_time, total_bac_at_time))
+            # 2. GLOBALE Elimination auf Gesamt-BAK anwenden
+            # Finde den Zeitpunkt mit maximaler Resorption (globaler Peak)
+            global_peak_time = None
+            max_resorption = 0.0
+            
+            # Vereinfachte Peak-Ermittlung: Mittelwert aller Peak-Zeiten
+            if drink_contributions:
+                avg_peak_time = sum(contrib['peak_time'].timestamp() for contrib in drink_contributions) / len(drink_contributions)
+                global_peak_time = datetime.fromtimestamp(avg_peak_time)
+            else:
+                global_peak_time = current_time
+            
+            # 3. Globale Elimination anwenden (nur nach dem globalen Peak)
+            if current_time <= global_peak_time:
+                # Vor/während Resorption: Keine Elimination
+                final_bac = total_resorption_bac
+            else:
+                # Nach Peak: Globale Elimination auf Gesamt-BAK
+                hours_since_peak = (current_time - global_peak_time).total_seconds() / 3600
+                elimination_amount = global_elimination_rate * hours_since_peak
+                final_bac = max(0.0, total_resorption_bac - elimination_amount)
+            
+            bac_values.append((current_time, final_bac))
             
             # Stoppe wenn BAK unter 0.001‰ ist und wir sind lange nach dem letzten Getränk
-            if (total_bac_at_time <= 0.001 and 
+            if (final_bac <= 0.001 and 
                 current_time > last_drink_time + timedelta(hours=2)):
                 break
                 
             current_time += time_step
         
-        # Generiert {len(bac_values)} BAK-Datenpunkte
+        # Generiert {len(bac_values)} BAK-Datenpunkte mit GLOBALER Elimination
         
-        # BAK-Zeitpunkt basierend auf Einstellung bestimmen
-        target_time = now
-        if not self.settings_data.get('current_bac', True):
-            # Wenn nicht "aktuelle BAK", dann 30 Min nach letztem Getränk
-            if drinks:
-                last_drink_time = max(drink.time for drink in drinks)
-                target_time = last_drink_time + timedelta(minutes=30)
+        # BAK-Messzeitpunkt basierend auf Benutzer-Auswahl bestimmen
+        timing_mode = self.settings_data.get('timing_mode', '30 min nach letztem Konsum')
+        
+        # Standard-Zeitpunkt: Datum des letzten Getränks + 30 Minuten
+        if drinks:
+            last_drink_time = max(drink.time for drink in drinks)
+            default_target_time = last_drink_time + timedelta(minutes=30)
+        else:
+            default_target_time = now
+        
+        target_time = default_target_time
+        timing_description = "30 Min nach letztem Konsum"
+        
+        if timing_mode == "Jetzt (aktuell)":
+            target_time = now
+            timing_description = f"Aktueller Zeitpunkt ({target_time.strftime('%d.%m.%Y %H:%M')})"
+        elif timing_mode == "30 min nach letztem Konsum":
+            target_time = default_target_time
+            timing_description = f"30 Min nach letztem Konsum ({target_time.strftime('%d.%m.%Y %H:%M')})"
+        elif timing_mode == "Zeitpunkt höchster BAK":
+            # Peak-Zeit wird aus bac_values bestimmt
+            peak_bac_temp = 0.0
+            peak_time_temp = default_target_time
+            for time_point, bac_value in bac_values:
+                if bac_value > peak_bac_temp:
+                    peak_bac_temp = bac_value
+                    peak_time_temp = time_point
+            target_time = peak_time_temp
+            timing_description = f"Zeitpunkt höchster BAK ({target_time.strftime('%d.%m.%Y %H:%M')})"
+        elif timing_mode == "Benutzerdefiniert":
+            custom_datetime_str = self.settings_data.get('custom_datetime', default_target_time.strftime('%d.%m.%Y %H:%M'))
+            try:
+                # Parsen der benutzerdefinierten Datum/Zeit
+                target_time = datetime.strptime(custom_datetime_str, '%d.%m.%Y %H:%M')
+                timing_description = f"Benutzerdefiniert ({target_time.strftime('%d.%m.%Y %H:%M')})"
+            except ValueError:
+                # Fallback auf Standard-Zeitpunkt bei ungültiger Eingabe
+                target_time = default_target_time
+                timing_description = f"Standard (Fehler bei Eingabe) ({target_time.strftime('%d.%m.%Y %H:%M')})"
         
         # BAK zum Zielzeitpunkt und Peak-BAK berechnen
         current_bac = 0.0
@@ -317,7 +375,7 @@ class CalculationController(QObject):
                 peak_bac = bac_value
                 peak_time = time_point
         
-        # Aktuelle BAK berechnet: {current_bac:.3f}‰
+        # Aktuelle BAK berechnet: {current_bac:.3f}‰ (mit GLOBALER Elimination)
         
         # Zeiten berechnen
         # Zeit bis unter 0.5‰
@@ -332,18 +390,39 @@ class CalculationController(QObject):
                     time_to_00 = time_point
                     break
         
-        # Detaillierte Berechnung für Dokumentation
+        # Detaillierte Berechnung für Dokumentation - mit globaler Elimination
         individual_contributions = []
-        for contrib in drink_contributions:
-            # Verwende den gleichen target_time wie für die Haupt-BAK-Berechnung
-            current_contrib_bac = self._calculate_single_drink_bac(target_time, contrib, elimination_rate)
+        
+        # Sortiere drink_contributions nach Konsumzeit
+        sorted_contributions = sorted(drink_contributions, key=lambda x: x['consumption_time'])
+        
+        # Berechne anteilige Elimination für jedes Getränk
+        total_resorption_at_target = sum(
+            self._calculate_resorption_only(target_time, contrib) 
+            for contrib in sorted_contributions
+        )
+        
+        for i, contrib in enumerate(sorted_contributions):
+            # Resorptionsbeitrag ohne Elimination
+            resorption_contrib = self._calculate_resorption_only(target_time, contrib)
+            
+            # Anteilige globale Elimination berechnen
+            if total_resorption_at_target > 0:
+                contrib_ratio = resorption_contrib / total_resorption_at_target
+                individual_elimination = (total_resorption_at_target - current_bac) * contrib_ratio
+                final_contrib = max(0.0, resorption_contrib - individual_elimination)
+            else:
+                final_contrib = 0.0
+            
             individual_contributions.append({
-                'drink_number': contrib['drink_index'] + 1,
+                'drink_number': i + 1,  # Neu nummerieren nach zeitlicher Reihenfolge
+                'drink_name': contrib['drink_name'],  # Getränke-Name
+                'original_index': contrib['drink_index'] + 1,  # Ursprüngliche Nummer beibehalten
                 'alcohol_grams': contrib['alcohol_grams'],
                 'consumption_time': contrib['consumption_time'].strftime('%H:%M'),
                 'peak_bac': contrib['peak_bac'],
                 'peak_time': contrib['peak_time'].strftime('%H:%M'),
-                'current_contribution': current_contrib_bac,
+                'current_contribution': final_contrib,  # Mit anteiliger globaler Elimination
                 'resorption_duration': contrib['resorption_hours']
             })
         
@@ -351,26 +430,49 @@ class CalculationController(QObject):
             'peak_bac': round(peak_bac, 3),
             'current_bac': round(current_bac, 3),
             'bac_calculation_time': target_time,  # Zeitpunkt der BAK-Berechnung
+            'timing_description': timing_description,  # Beschreibung des Messzeitpunkts
+            'timing_mode': timing_mode,  # Gewählter Modus
             'model': model.value,
             'alcohol_grams': round(total_alcohol, 1),
-            'elimination_time': f"{(current_bac / elimination_rate):.1f} Stunden" if current_bac > 0 else "Bereits nüchtern",
+            'elimination_time': f"{(current_bac / global_elimination_rate):.1f} Stunden" if current_bac > 0 else "Bereits nüchtern",
             'peak_time': peak_time.strftime('%H:%M') if peak_time else "N/A",
             'time_to_03': time_to_05,
             'time_to_00': time_to_00,
-            'elimination_rate': elimination_rate,
+            'elimination_rate': global_elimination_rate,  # Globale Rate dokumentieren
             'r_factor': round(r_factor, 3),
             'person_weight': person.weight,
             'body_fat_factor': round(1.0 - (person.body_fat - 20) * 0.01, 3),
             'bac_values': bac_values,  # Für Diagramm
-            'individual_contributions': individual_contributions,  # Neue Einzelgetränk-Details
+            'individual_contributions': individual_contributions,  # Mit globaler Elimination
             'total_drinks': len(drinks),
             'calculation_details': {
                 'zwischenschritt_1': f"Verteilungsvolumen = {person.weight} kg × {r_factor:.3f} = {person.weight * r_factor:.1f} L",
                 'zwischenschritt_2': f"Gesamtalkohol = {total_alcohol:.1f} g (Summe aller Getränke)",
                 'individual_peaks': f"{len(drinks)} Einzelgetränke mit separaten Resorptionskurven",
-                'körperfett_korrektur': f"Körperfett-Faktor = {round(1.0 - (person.body_fat - 20) * 0.01, 3)}"
+                'körperfett_korrektur': f"Körperfett-Faktor = {round(1.0 - (person.body_fat - 20) * 0.01, 3)}",
+                'messzeitpunkt': timing_description,  # Dokumentation des Messzeitpunkts
+                'elimination_prinzip': f"GLOBALE Elimination: {global_elimination_rate:.3f} ‰/h auf Gesamt-BAK (nicht pro Getränk)"
             }
         }
+
+    def _calculate_resorption_only(self, current_time, drink_contrib):
+        """Berechnet nur den Resorptionsbeitrag eines Getränks (ohne Elimination)"""
+        consumption_time = drink_contrib['consumption_time']
+        peak_time = drink_contrib['peak_time']
+        peak_bac = drink_contrib['peak_bac']
+        resorption_hours = drink_contrib['resorption_hours']
+        
+        if current_time < consumption_time:
+            # Vor dem Konsumzeitpunkt: kein Beitrag
+            return 0.0
+        elif current_time <= peak_time:
+            # Resorptionsphase - Linear ansteigend
+            time_since_consumption = (current_time - consumption_time).total_seconds() / 3600
+            progress = max(0.0, min(1.0, time_since_consumption / resorption_hours))
+            return peak_bac * progress
+        else:
+            # Nach Peak: Vollständige Resorption erreicht (ohne individuelle Elimination)
+            return peak_bac
 
     def _get_base_resorption_time(self) -> float:
         """Bestimmt die Basis-Resorptionszeit basierend auf Benutzer-Einstellung"""
@@ -413,31 +515,6 @@ class CalculationController(QObject):
         else:
             return 1.0   # Standard
 
-    def _calculate_single_drink_bac(self, current_time, drink_contrib, elimination_rate):
-        """Berechnet den BAK-Beitrag eines einzelnen Getränks zu einem bestimmten Zeitpunkt"""
-        consumption_time = drink_contrib['consumption_time']
-        peak_time = drink_contrib['peak_time']
-        peak_bac = drink_contrib['peak_bac']
-        resorption_hours = drink_contrib['resorption_hours']
-        
-        # Resorptionsdefizit berücksichtigen (reduziert Peak-BAK)
-        resorption_deficit = self.settings_data.get('resorption_deficit', 0) / 100.0
-        adjusted_peak_bac = peak_bac * (1.0 - resorption_deficit)
-        
-        if current_time < consumption_time:
-            # Vor dem Konsumzeitpunkt: kein Beitrag
-            return 0.0
-        elif current_time <= peak_time:
-            # Resorptionsphase - Linear ansteigend
-            time_since_consumption = (current_time - consumption_time).total_seconds() / 3600
-            progress = max(0.0, min(1.0, time_since_consumption / resorption_hours))
-            return adjusted_peak_bac * progress
-        else:
-            # Eliminationsphase - First-Order-Kinetik
-            time_since_peak = (current_time - peak_time).total_seconds() / 3600
-            bac_after_elimination = adjusted_peak_bac - (elimination_rate * time_since_peak)
-            return max(0.0, bac_after_elimination)
-    
     def _generate_cache_key(self) -> str:
         """Generiert einen Cache-Schlüssel"""
         import hashlib
@@ -487,9 +564,13 @@ class CalculationController(QObject):
         self._perform_calculation()
 
     def calculate_bac_curve(self, drinks_data, weight, gender, height, age):
-        """Berechnet die BAK-Kurve für alle Getränke"""
+        """Berechnet die BAK-Kurve für alle Getränke mit GLOBALER Elimination"""
         if not drinks_data:
             return [], []
+        
+        # HINWEIS: Diese Methode ist veraltet und sollte durch die neue 
+        # globale Elimination in _mock_calculation ersetzt werden.
+        # Für Kompatibilität wird eine vereinfachte Version bereitgestellt.
         
         # Sortiere Getränke nach Zeit
         sorted_drinks = sorted(drinks_data, key=lambda x: x['time'])
@@ -508,15 +589,41 @@ class CalculationController(QObject):
             time_points.append(current_time)
             current_time += timedelta(minutes=5)
         
-        # Berechne BAK für jeden Zeitpunkt
+        # Vereinfachte globale BAK-Berechnung
         bac_values = []
+        global_elimination_rate = getattr(self, 'elimination_rate', 0.15)  # Fallback
+        
+        # Finde globalen Peak-Zeitpunkt (vereinfacht: 1 Stunde nach letztem Getränk)
+        global_peak_time = max(drink_times) + timedelta(hours=1)
+        
         for current_time in time_points:
-            total_bac = 0.0
+            # Summiere alle Resorptionsbeiträge (ohne individuelle Elimination)
+            total_resorption = 0.0
+            
             for drink in sorted_drinks:
-                # Berechne BAK-Beitrag jedes Getränks
-                drink_contrib = self._calculate_drink_contribution(drink, weight, gender, height, age)
-                bac = self._calculate_single_drink_bac(current_time, drink_contrib, self.elimination_rate)
-                total_bac += bac
-            bac_values.append(total_bac)
+                # Vereinfachte Resorptionsberechnung
+                if current_time >= drink['time']:
+                    hours_since_drink = (current_time - drink['time']).total_seconds() / 3600
+                    if hours_since_drink <= 1.0:  # Resorptionsphase
+                        progress = min(1.0, hours_since_drink)
+                        alcohol_grams = drink['volume'] * (drink['alcohol_content'] / 100) * 0.8
+                        r_factor = 0.68 if gender == 'Männlich' else 0.55
+                        drink_bac = (alcohol_grams / (weight * r_factor)) * progress
+                        total_resorption += drink_bac
+                    else:  # Nach Resorption: volle BAK
+                        alcohol_grams = drink['volume'] * (drink['alcohol_content'] / 100) * 0.8
+                        r_factor = 0.68 if gender == 'Männlich' else 0.55
+                        drink_bac = alcohol_grams / (weight * r_factor)
+                        total_resorption += drink_bac
+            
+            # Globale Elimination anwenden
+            if current_time <= global_peak_time:
+                final_bac = total_resorption
+            else:
+                hours_since_peak = (current_time - global_peak_time).total_seconds() / 3600
+                elimination_amount = global_elimination_rate * hours_since_peak
+                final_bac = max(0.0, total_resorption - elimination_amount)
+            
+            bac_values.append(final_bac)
         
         return time_points, bac_values, drink_times 

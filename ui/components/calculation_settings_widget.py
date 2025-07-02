@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-                            QCheckBox, QComboBox, QSlider, QGroupBox, QSpinBox)
-from PyQt6.QtCore import pyqtSignal, Qt
+                            QCheckBox, QComboBox, QSlider, QGroupBox, QSpinBox, QTimeEdit, QDateTimeEdit)
+from PyQt6.QtCore import pyqtSignal, Qt, QTime, QDateTime
 from PyQt6.QtGui import QFont
 from typing import Dict, List
 
@@ -199,25 +199,73 @@ Anteil des Alkohols, der nicht ins Blut gelangt:<br>
         
         layout.addWidget(resorption_group)
         
-        # BAK-Zeitpunkt-Einstellungen
-        bac_timing_group = QGroupBox("BAK-Zeitpunkt")
+        # BAK-Messzeitpunkt-Einstellungen
+        bac_timing_group = QGroupBox("BAK-Messzeitpunkt")
         bac_timing_group.setFont(QFont("Inter", 14, QFont.Weight.Bold))
         bac_timing_layout = QVBoxLayout(bac_timing_group)
         
-        self.current_bac_checkbox = QCheckBox("Aktuelle BAK bestimmen")
-        self.current_bac_checkbox.setFont(QFont("Inter", 12))
-        self.current_bac_checkbox.setChecked(True)  # Standardmäßig aktiviert
-        self.current_bac_checkbox.setToolTip("""
-<b>BAK-Zeitpunkt-Bestimmung</b><br><br>
-<b>Aktiviert:</b> BAK wird zum aktuellen Zeitpunkt berechnet<br>
-<b>Deaktiviert:</b> BAK wird 30 Minuten nach dem letzten Getränk berechnet<br><br>
-<b>Anwendungsfälle:</b><br>
-• <b>Aktuell:</b> "Wie betrunken bin ich jetzt?"<br>
-• <b>30 Min später:</b> "Wie betrunken war ich nach dem Trinken?"<br><br>
-<b>Forensische Relevanz:</b> Oft ist der Zeitpunkt 30 Minuten nach dem letzten Getränk relevant für Rückrechnungen
+        # Messzeitpunkt-Dropdown
+        timing_layout = QHBoxLayout()
+        timing_label = QLabel("Messzeitpunkt:")
+        timing_label.setFont(QFont("Inter", 12))
+        timing_label.setToolTip("""
+<b>BAK-Messzeitpunkt-Bestimmung</b><br><br>
+Wählen Sie den Zeitpunkt, zu dem die BAK-Werte berechnet werden sollen:<br>
+• <b>Jetzt (aktuell):</b> BAK zum aktuellen Zeitpunkt<br>
+• <b>30 min nach letztem Konsum:</b> Standard-Forensikzeitpunkt<br>
+• <b>Zeitpunkt höchster BAK:</b> Maximum der BAK-Kurve<br>
+• <b>Benutzerdefiniert:</b> Spezifischer Zeitpunkt<br><br>
+<b>Forensische Relevanz:</b> 30 Minuten nach letztem Konsum ist der Standard für Rückrechnungen
         """)
         
-        bac_timing_layout.addWidget(self.current_bac_checkbox)
+        self.timing_combo = QComboBox()
+        self.timing_combo.setFont(QFont("Inter", 12))
+        self.timing_combo.addItems([
+            "Jetzt (aktuell)",
+            "30 min nach letztem Konsum", 
+            "Zeitpunkt höchster BAK",
+            "Benutzerdefiniert"
+        ])
+        self.timing_combo.setCurrentText("30 min nach letztem Konsum")
+        self.timing_combo.setToolTip("""
+<b>Messzeitpunkt-Optionen</b><br><br>
+<b>Jetzt (aktuell):</b> Aktuelle Uhrzeit - "Wie betrunken bin ich jetzt?"<br>
+<b>30 min nach letztem Konsum:</b> Forensischer Standard für vollständige Resorption<br>
+<b>Zeitpunkt höchster BAK:</b> Peak-BAK der Kurve (individuell berechnet)<br>
+<b>Benutzerdefiniert:</b> Spezifische Uhrzeit eingeben<br><br>
+<b>Alle Auswertungen beziehen sich auf den gewählten Zeitpunkt!</b>
+        """)
+        
+        timing_layout.addWidget(timing_label)
+        timing_layout.addWidget(self.timing_combo)
+        bac_timing_layout.addLayout(timing_layout)
+        
+        # Benutzerdefinierte Datum/Zeit-Eingabe
+        custom_datetime_layout = QHBoxLayout()
+        custom_datetime_label = QLabel("Datum/Zeit:")
+        custom_datetime_label.setFont(QFont("Inter", 12))
+        
+        self.custom_datetime_edit = QDateTimeEdit()
+        self.custom_datetime_edit.setFont(QFont("Inter", 12))
+        self.custom_datetime_edit.setDisplayFormat("dd.MM.yyyy HH:mm")
+        self.custom_datetime_edit.setDateTime(QDateTime.currentDateTime())
+        self.custom_datetime_edit.setEnabled(False)
+        self.custom_datetime_edit.setCalendarPopup(True)
+        self.custom_datetime_edit.setToolTip("""
+<b>Benutzerdefinierte Messzeit</b><br><br>
+Geben Sie das gewünschte Datum und die Uhrzeit für die BAK-Berechnung ein.<br>
+Format: TT.MM.JJJJ HH:MM<br><br>
+<b>Beispiele:</b><br>
+• 15.12.2024 22:30<br>
+• 16.12.2024 01:15<br><br>
+<b>Hinweis:</b> Zeitpunkt sollte nach dem ersten Getränk liegen!
+        """)
+        
+        custom_datetime_layout.addWidget(custom_datetime_label)
+        custom_datetime_layout.addWidget(self.custom_datetime_edit)
+        custom_datetime_layout.addStretch()
+        bac_timing_layout.addLayout(custom_datetime_layout)
+        
         layout.addWidget(bac_timing_group)
         
         # Eliminationseinstellungen
@@ -377,8 +425,10 @@ Nahrung beeinflusst massiv die Alkoholresorption:<br>
         for checkbox in self.model_checkboxes.values():
             checkbox.stateChanged.connect(self.data_changed.emit)
         
-        # BAK-Zeitpunkt
-        self.current_bac_checkbox.stateChanged.connect(self.data_changed.emit)
+        # BAK-Messzeitpunkt
+        self.timing_combo.currentTextChanged.connect(self.on_timing_changed)
+        self.timing_combo.currentTextChanged.connect(self.data_changed.emit)
+        self.custom_datetime_edit.dateTimeChanged.connect(self.data_changed.emit)
         
         # Resorption
         self.resorption_time_combo.currentTextChanged.connect(self.data_changed.emit)
@@ -401,6 +451,9 @@ Nahrung beeinflusst massiv die Alkoholresorption:<br>
         self.model_checkboxes["Watson"].setChecked(True)
         self.model_checkboxes["Forrest"].setChecked(True)
         
+        # Standard-Messzeitpunkt: 30 min nach letztem Konsum
+        self.timing_combo.setCurrentText("30 min nach letztem Konsum")
+        
         # Realistische Einstellungen für typischen Abend
         self.resorption_time_combo.setCurrentText("Normal (45 min)")
         self.resorption_deficit_slider.setValue(12)  # Leicht erhöht für Realismus
@@ -422,6 +475,11 @@ Nahrung beeinflusst massiv die Alkoholresorption:<br>
         value = self.manual_elimination_slider.value() / 100.0  # Convert to ‰/h
         self.manual_elimination_label.setText(f"{value:.2f}")
     
+    def on_timing_changed(self):
+        """Aktiviert/deaktiviert benutzerdefinierte Datum/Zeit-Eingabe"""
+        is_custom = self.timing_combo.currentText() == "Benutzerdefiniert"
+        self.custom_datetime_edit.setEnabled(is_custom)
+    
     def on_elimination_rate_changed(self):
         """Reagiert auf Änderung der Eliminationsrate"""
         is_manual = self.elimination_rate_combo.currentText() == "Manuell"
@@ -437,7 +495,8 @@ Nahrung beeinflusst massiv die Alkoholresorption:<br>
         
         return {
             'models': selected_models,
-            'current_bac': self.current_bac_checkbox.isChecked(),
+            'timing_mode': self.timing_combo.currentText(),
+            'custom_datetime': self.custom_datetime_edit.dateTime().toString('dd.MM.yyyy HH:mm'),
             'resorption_time': self.resorption_time_combo.currentText(),
             'resorption_deficit': self.resorption_deficit_slider.value(),
             'elimination_rate': self.elimination_rate_combo.currentText(),
@@ -452,9 +511,14 @@ Nahrung beeinflusst massiv die Alkoholresorption:<br>
             for model_name, checkbox in self.model_checkboxes.items():
                 checkbox.setChecked(model_name in data['models'])
         
-        # BAK-Zeitpunkt
-        if 'current_bac' in data:
-            self.current_bac_checkbox.setChecked(data['current_bac'])
+        # BAK-Messzeitpunkt
+        if 'timing_mode' in data:
+            self.timing_combo.setCurrentText(data['timing_mode'])
+        
+        if 'custom_datetime' in data:
+            datetime_obj = QDateTime.fromString(data['custom_datetime'], 'dd.MM.yyyy HH:mm')
+            if datetime_obj.isValid():
+                self.custom_datetime_edit.setDateTime(datetime_obj)
         
         # Andere Einstellungen
         if 'resorption_time' in data:
@@ -476,6 +540,7 @@ Nahrung beeinflusst massiv die Alkoholresorption:<br>
         self.update_resorption_deficit_label()
         self.update_manual_elimination_label()
         self.on_elimination_rate_changed()
+        self.on_timing_changed()
     
     def validate_settings(self) -> List[str]:
         """Validiert die Einstellungen"""
