@@ -99,6 +99,9 @@ class CalculationController(QObject):
             body_fat=self.person_data.get('body_fat', 20)
         )
         
+        # Trinkgewohnheiten für spätere Verwendung speichern
+        drinking_habit = self.person_data.get('drinking_habit', 'Gelegentlich')
+        
         # Drink-Objekte erstellen
         drinks = []
         for drink_data in self.drinks_data:
@@ -126,25 +129,34 @@ class CalculationController(QObject):
         # Resorption-Modus bestimmen
         resorption_mode = ResorptionMode.FASTING if self.settings_data.get('meal_status') == 'Nüchtern' else ResorptionMode.WITH_FOOD
         
-        # Elimination-Rate bestimmen
-        elimination_rate = 0.15  # Standard
-        if self.settings_data.get('elimination_rate') == 'Auto (geschlechtsabhängig)':
-            elimination_rate = 0.17 if gender == Gender.MALE else 0.15
-        elif self.settings_data.get('manual_elimination_rate'):
-            elimination_rate = float(self.settings_data['manual_elimination_rate'])
+        # Elimination-Rate bestimmen (wird später modell-spezifisch überschrieben)
+        elimination_setting = self.settings_data.get('elimination_rate', 'Auto (geschlechtsabhängig)')
+        
+        if elimination_setting == 'Auto (geschlechtsabhängig)':
+            global_elimination_rate = 0.17 if gender == Gender.MALE else 0.15
+        elif 'Niedrig (0.10' in elimination_setting:
+            global_elimination_rate = 0.10
+        elif 'Normal (0.15' in elimination_setting:
+            global_elimination_rate = 0.15
+        elif 'Hoch (0.20' in elimination_setting:
+            global_elimination_rate = 0.20
+        elif elimination_setting == 'Manuell':
+            global_elimination_rate = float(self.settings_data.get('manual_elimination_rate', 0.15))
+        else:
+            global_elimination_rate = 0.15  # Standard
         
         # Settings-Objekt erstellen
         settings = CalculationSettings(
             models=selected_models,
             resorption_mode=resorption_mode,
-            elimination_rate=elimination_rate
+            elimination_rate=global_elimination_rate
         )
         
         # Für jedes ausgewählte Modell berechnen
         for model in selected_models:
             try:
                 # Da es keinen echten Calculator gibt, erstelle Mock-Ergebnisse
-                result = self._mock_calculation(person, drinks, model)
+                result = self._mock_calculation(person, drinks, model, global_elimination_rate, drinking_habit)
                 results[model.value] = result
             except Exception as e:
                 print(f"Fehler bei Modell {model}: {e}")
@@ -152,7 +164,7 @@ class CalculationController(QObject):
         
         return results
     
-    def _mock_calculation(self, person, drinks, model):
+    def _mock_calculation(self, person, drinks, model, user_elimination_rate, drinking_habit):
         """Realistische Berechnung mit Einzelgetränk-Abbau verschiedener BAK-Modelle"""
         
         # DEBUG: Alkoholmenge ausgeben
@@ -166,7 +178,7 @@ class CalculationController(QObject):
         if model == BAKModel.WIDMARK:
             # Klassische Widmark-Formel
             r_factor = 0.68 if is_male else 0.55
-            elimination_rate = 0.15 if is_male else 0.13
+            default_elimination = 0.15 if is_male else 0.13
             
         elif model == BAKModel.WATSON:
             # Watson-Modell mit Total Body Water
@@ -175,14 +187,14 @@ class CalculationController(QObject):
             else:
                 tbw = -2.097 + (0.1069 * person.height) + (0.2466 * person.weight)
             r_factor = tbw / person.weight
-            elimination_rate = 0.16 if is_male else 0.14
+            default_elimination = 0.16 if is_male else 0.14
             
         elif model == BAKModel.FORREST:
             # Forrest-Modell mit Alterskorrektur
             base_r = 0.68 if is_male else 0.55
             age_factor = max(0.5, 1 - 0.01 * max(0, person.age - 20))  # 1% Reduktion pro Jahr ab 20
             r_factor = base_r * age_factor
-            elimination_rate = 0.17 if is_male else 0.15
+            default_elimination = 0.17 if is_male else 0.15
             
         elif model == BAKModel.SEIDL:
             # Seidl-Modell mit BMI und Körperfett-Korrektur
@@ -191,14 +203,24 @@ class CalculationController(QObject):
             base_r = 0.70 if is_male else 0.58
             body_fat_factor = 1.0 - (person.body_fat - 20) * 0.01
             r_factor = base_r * bmi_factor * body_fat_factor
-            elimination_rate = 0.18 if is_male else 0.16
+            default_elimination = 0.18 if is_male else 0.16
             
         else:
             # Fallback: Widmark
             r_factor = 0.68 if is_male else 0.55
-            elimination_rate = 0.15 if is_male else 0.13
+            default_elimination = 0.15 if is_male else 0.13
         
-        # Faktoren: r={r_factor:.3f}, elimination={elimination_rate:.3f}‰/h
+        # Benutzer-Einstellung für Elimination verwenden oder Standard
+        if self.settings_data.get('elimination_rate') == 'Auto (modellspezifisch)':
+            elimination_rate = default_elimination
+        else:
+            elimination_rate = user_elimination_rate
+        
+        # Trinkgewohnheiten-Faktor anwenden (Enzyminduktion)
+        habit_factor = self._get_drinking_habit_factor(drinking_habit)
+        elimination_rate *= habit_factor
+        
+        # Debug: Faktoren: r={r_factor:.3f}, elimination={elimination_rate:.3f}‰/h
         
         # Einzelgetränk-Berechnung mit separater Pharmakodynamik
         now = datetime.now()
@@ -211,13 +233,22 @@ class CalculationController(QObject):
             # Einzelgetränk Peak-BAK
             drink_peak_bac = drink_alcohol / (person.weight * r_factor)
             
-            # Resorptionszeit für dieses Getränk (30-60 Minuten je nach Typ)
+            # Resorptionszeit basierend auf Benutzer-Einstellung
+            base_resorption_hours = self._get_base_resorption_time()
+            
+            # Getränk-spezifische Anpassung
             if drink_alcohol <= 10:  # Kleine Getränke
-                resorption_time_hours = 0.5  # 30 Minuten
+                drink_factor = 0.8  # 20% schneller
             elif drink_alcohol <= 20:  # Normale Getränke
-                resorption_time_hours = 0.75  # 45 Minuten  
+                drink_factor = 1.0  # Normal
             else:  # Große/starke Getränke
-                resorption_time_hours = 1.0  # 60 Minuten
+                drink_factor = 1.3  # 30% langsamer
+            
+            # Mahlzeiten-Effekt berücksichtigen
+            meal_factor = self._get_meal_factor()
+            
+            # Finale Resorptionszeit
+            resorption_time_hours = base_resorption_hours * drink_factor * meal_factor
             
             # Peak-Zeit für dieses Getränk
             drink_peak_time = drink_time + timedelta(hours=resorption_time_hours)
@@ -341,12 +372,57 @@ class CalculationController(QObject):
             }
         }
 
+    def _get_base_resorption_time(self) -> float:
+        """Bestimmt die Basis-Resorptionszeit basierend auf Benutzer-Einstellung"""
+        resorption_setting = self.settings_data.get('resorption_time', 'Normal (45 min)')
+        
+        if 'Schnell (30 min)' in resorption_setting:
+            return 0.5  # 30 Minuten
+        elif 'Normal (45 min)' in resorption_setting:
+            return 0.75  # 45 Minuten
+        elif 'Langsam (60 min)' in resorption_setting:
+            return 1.0  # 60 Minuten
+        else:
+            return 0.75  # Standard: 45 Minuten
+    
+    def _get_meal_factor(self) -> float:
+        """Bestimmt den Mahlzeiten-Faktor für Resorptionsverzögerung"""
+        meal_status = self.settings_data.get('meal_status', 'Nüchtern')
+        
+        if meal_status == 'Nüchtern':
+            return 1.0  # Keine Verzögerung
+        elif meal_status == 'Leichte Mahlzeit':
+            return 1.3  # 30% langsamer
+        elif meal_status == 'Normale Mahlzeit':
+            return 1.6  # 60% langsamer
+        elif meal_status == 'Schwere Mahlzeit':
+            return 2.0  # 100% langsamer (doppelt so lang)
+        else:
+            return 1.0  # Standard: nüchtern
+    
+    def _get_drinking_habit_factor(self, drinking_habit: str) -> float:
+        """Bestimmt den Trinkgewohnheiten-Faktor für Enzyminduktion"""
+        if drinking_habit == 'Abstinent':
+            return 0.95  # 5% langsamere Elimination (weniger Enzyme)
+        elif drinking_habit == 'Gelegentlich':
+            return 1.0   # Standard-Elimination
+        elif drinking_habit == 'Regelmäßig':
+            return 1.2   # 20% schnellere Elimination (Enzyminduktion)
+        elif drinking_habit == 'Täglich':
+            return 1.4   # 40% schnellere Elimination (starke Enzyminduktion)
+        else:
+            return 1.0   # Standard
+
     def _calculate_single_drink_bac(self, current_time, drink_contrib, elimination_rate):
         """Berechnet den BAK-Beitrag eines einzelnen Getränks zu einem bestimmten Zeitpunkt"""
         consumption_time = drink_contrib['consumption_time']
         peak_time = drink_contrib['peak_time']
         peak_bac = drink_contrib['peak_bac']
         resorption_hours = drink_contrib['resorption_hours']
+        
+        # Resorptionsdefizit berücksichtigen (reduziert Peak-BAK)
+        resorption_deficit = self.settings_data.get('resorption_deficit', 0) / 100.0
+        adjusted_peak_bac = peak_bac * (1.0 - resorption_deficit)
         
         if current_time < consumption_time:
             # Vor dem Konsumzeitpunkt: kein Beitrag
@@ -355,11 +431,11 @@ class CalculationController(QObject):
             # Resorptionsphase - Linear ansteigend
             time_since_consumption = (current_time - consumption_time).total_seconds() / 3600
             progress = max(0.0, min(1.0, time_since_consumption / resorption_hours))
-            return peak_bac * progress
+            return adjusted_peak_bac * progress
         else:
             # Eliminationsphase - First-Order-Kinetik
             time_since_peak = (current_time - peak_time).total_seconds() / 3600
-            bac_after_elimination = peak_bac - (elimination_rate * time_since_peak)
+            bac_after_elimination = adjusted_peak_bac - (elimination_rate * time_since_peak)
             return max(0.0, bac_after_elimination)
     
     def _generate_cache_key(self) -> str:
