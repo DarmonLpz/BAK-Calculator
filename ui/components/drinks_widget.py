@@ -12,9 +12,9 @@ class AddDrinkDialog(QDialog):
     
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Getränk hinzufügen - BAK Calculator v2.0")
+        self.setWindowTitle("Getränke hinzufügen - BAK Calculator v2.0")
         self.setModal(True)
-        self.setFixedSize(450, 400)  # Größer für besseres Layout
+        self.setFixedSize(500, 600)  # Größer für erweiterte UI
         
         # Getränke-Daten initialisieren
         self.drink_data = {
@@ -42,9 +42,11 @@ class AddDrinkDialog(QDialog):
     def eventFilter(self, obj, event):
         """Event-Filter für Tag-Markierung bei Datumsfeldern"""
         from PyQt6.QtCore import QEvent
-        if obj == self.date_edit and event.type() == QEvent.Type.FocusIn:
-            if hasattr(self, '_select_day_callback'):
-                QTimer.singleShot(0, self._select_day_callback)
+        if event.type() == QEvent.Type.FocusIn:
+            if obj == self.start_date_edit and hasattr(self, '_select_start_day_callback'):
+                QTimer.singleShot(0, self._select_start_day_callback)
+            elif obj == self.end_date_edit and hasattr(self, '_select_end_day_callback'):
+                QTimer.singleShot(0, self._select_end_day_callback)
         return super().eventFilter(obj, event)
     
     def setup_ui(self):
@@ -54,7 +56,7 @@ class AddDrinkDialog(QDialog):
         layout.setContentsMargins(20, 20, 20, 20)  # Größere Ränder
         
         # Getränke-Auswahl
-        drink_group = QGroupBox("Getränk auswählen")
+        drink_group = QGroupBox("Getränke auswählen")
         drink_group.setFont(QFont("Inter", 13, QFont.Weight.Bold))
         drink_layout = QVBoxLayout(drink_group)
         drink_layout.setSpacing(10)  # Abstand zwischen Elementen
@@ -175,6 +177,38 @@ Die Alkoholmenge berechnet sich:<br>
         alcohol_layout.addWidget(self.alcohol_spin)
         drink_layout.addLayout(alcohol_layout)
         
+        # Anzahl
+        quantity_layout = QHBoxLayout()
+        quantity_layout.setSpacing(10)
+        quantity_label = QLabel("Anzahl:")
+        quantity_label.setFont(QFont("Inter", 12))
+        quantity_label.setMinimumWidth(120)  # Konsistente Label-Breite
+        quantity_label.setToolTip("""
+<b>Mehrfach-Getränke hinzufügen</b><br><br>
+<b>Funktionen:</b><br>
+• <b>1-40 Getränke:</b> Gleichzeitig hinzufügen<br>
+• <b>Zeitverteilung:</b> Über definierten Zeitraum<br>
+• <b>Batch-Eingabe:</b> Effizienter für Partys/Events<br><br>
+<b>Anwendung:</b> Mehrere identische Getränke auf einmal
+        """)
+        
+        self.quantity_combo = QComboBox()
+        self.quantity_combo.setFont(QFont("Inter", 12))
+        self.quantity_combo.setMinimumHeight(35)
+        for i in range(1, 41):  # 1-40 Getränke
+            self.quantity_combo.addItem(str(i))
+        self.quantity_combo.setCurrentText("1")
+        self.quantity_combo.setToolTip("""
+<b>Anzahl identischer Getränke</b><br><br>
+<b>Standard:</b> 1 Getränk<br>
+<b>Maximum:</b> 40 Getränke<br>
+<b>Verteilung:</b> Gleichmäßig über Zeitraum (optional)
+        """)
+        
+        quantity_layout.addWidget(quantity_label)
+        quantity_layout.addWidget(self.quantity_combo)
+        drink_layout.addLayout(quantity_layout)
+        
         layout.addWidget(drink_group)
         
         # Zeit
@@ -193,89 +227,142 @@ Der Zeitpunkt des Alkoholkonsums beeinflusst die Pharmakodynamik:<br>
         time_layout = QVBoxLayout(time_group)
         time_layout.setSpacing(10)  # Abstand zwischen Elementen
         
-        # Datum
-        date_layout = QHBoxLayout()
-        date_layout.setSpacing(10)
-        date_label = QLabel("Datum:")
-        date_label.setFont(QFont("Inter", 12))
-        date_label.setMinimumWidth(120)  # Konsistente Label-Breite
-        date_label.setToolTip("""
-<b>Datum-spezifische Dokumentation</b><br><br>
-<b>Forensische Relevanz:</b><br>
-• Eindeutige Zuordnung zu Ereignissen<br>
-• Rückrechnung zu spezifischen Zeitpunkten<br>
-• Mehrtagessitzungen dokumentieren<br><br>
-<b>Anwendungen:</b><br>
-• Retrospektive BAK-Berechnung<br>
-• Trinkprotokoll über mehrere Tage<br>
-• Ereignis-basierte Dokumentation
+        # Beginn-Datum
+        start_date_layout = QHBoxLayout()
+        start_date_layout.setSpacing(10)
+        start_date_label = QLabel("Beginn-Datum:")
+        start_date_label.setFont(QFont("Inter", 12))
+        start_date_label.setMinimumWidth(120)  # Konsistente Label-Breite
+        start_date_label.setToolTip("""
+<b>Beginn des Konsumzeitraums</b><br><br>
+<b>Standard:</b> Heutiges Datum<br>
+<b>Verwendung:</b> Startpunkt für Getränke-Verteilung<br>
+<b>Format:</b> TT.MM.JJJJ (deutsche Notation)
         """)
         
-        self.date_edit = QDateEdit()
-        self.date_edit.setFont(QFont("Inter", 12))
-        self.date_edit.setDate(QDate.currentDate())
-        self.date_edit.setDisplayFormat("dd.MM.yyyy")
-        self.date_edit.setCalendarPopup(True)
-        self.date_edit.setMinimumHeight(35)  # Konsistente Höhe
+        self.start_date_edit = QDateEdit()
+        self.start_date_edit.setFont(QFont("Inter", 12))
+        self.start_date_edit.setDate(QDate.currentDate())
+        self.start_date_edit.setDisplayFormat("dd.MM.yyyy")
+        self.start_date_edit.setCalendarPopup(True)
+        self.start_date_edit.setMinimumHeight(35)
         
-        # Tag beim Fokus markieren - einfacher Ansatz
-        def select_day_on_click():
-            lineedit = self.date_edit.lineEdit()
+        # Tag beim Fokus markieren
+        def select_start_day_on_click():
+            lineedit = self.start_date_edit.lineEdit()
             if lineedit:
                 lineedit.setSelection(0, 2)
         
-        # Connect zu focusInEvent über installEventFilter
-        self.date_edit.installEventFilter(self)
-        self._select_day_callback = select_day_on_click
+        self.start_date_edit.installEventFilter(self)
+        self._select_start_day_callback = select_start_day_on_click
         
-        self.date_edit.setToolTip("""
-<b>Datum für Konsumzeitpunkt</b><br><br>
-<b>Standard:</b> Heutiges Datum<br>
-<b>Anpassbar:</b> Vergangene/zukünftige Daten<br>
-<b>Format:</b> TT.MM.JJJJ (deutsche Notation)<br><br>
-<b>Kalender-Widget</b> verfügbar zum einfachen Auswählen
+        start_date_layout.addWidget(start_date_label)
+        start_date_layout.addWidget(self.start_date_edit)
+        time_layout.addLayout(start_date_layout)
+        
+        # Beginn-Uhrzeit
+        start_time_layout = QHBoxLayout()
+        start_time_layout.setSpacing(10)
+        start_time_label = QLabel("Beginn-Uhrzeit:")
+        start_time_label.setFont(QFont("Inter", 12))
+        start_time_label.setMinimumWidth(120)
+        start_time_label.setToolTip("""
+<b>Startzeit des Konsums</b><br><br>
+<b>Standard:</b> Aktuelle Zeit minus 30 Minuten<br>
+<b>Verwendung:</b> Erste Getränke-Zeit oder Verteilungsstart
         """)
         
-        date_layout.addWidget(date_label)
-        date_layout.addWidget(self.date_edit)
-        time_layout.addLayout(date_layout)
+        self.start_time_edit = QTimeEdit()
+        self.start_time_edit.setFont(QFont("Inter", 12))
+        # Standard: Aktuelle Zeit minus 30 Minuten
+        current_time = QTime.currentTime().addSecs(-30 * 60)
+        self.start_time_edit.setTime(current_time)
+        self.start_time_edit.setDisplayFormat("HH:mm")
+        self.start_time_edit.setMinimumHeight(35)
         
-        # Uhrzeit
-        time_selection_layout = QHBoxLayout()
-        time_selection_layout.setSpacing(10)
-        time_label = QLabel("Uhrzeit:")
-        time_label.setFont(QFont("Inter", 12))
-        time_label.setMinimumWidth(120)  # Konsistente Label-Breite
-        time_label.setToolTip("""
-<b>Resorptionskinetik und Timing</b><br><br>
-<b>Resorptionszeiten:</b><br>
-• <b>Nüchtern:</b> 15-45 min bis Peak-BAK<br>
-• <b>Mit Nahrung:</b> 30-120 min bis Peak-BAK<br>
-• <b>Langsam trinken:</b> Kontinuierliche Resorption<br><br>
-<b>Eliminationsstart:</b> Sofort parallel zur Resorption<br>
-<b>Peak-Zeit:</b> Wenn Resorption = Elimination<br><br>
-<b>First-Pass-Metabolismus:</b> 15-25% bereits in Magen/Leber
+        start_time_layout.addWidget(start_time_label)
+        start_time_layout.addWidget(self.start_time_edit)
+        time_layout.addLayout(start_time_layout)
+        
+        # Ende-Datum
+        end_date_layout = QHBoxLayout()
+        end_date_layout.setSpacing(10)
+        end_date_label = QLabel("Ende-Datum:")
+        end_date_label.setFont(QFont("Inter", 12))
+        end_date_label.setMinimumWidth(120)
+        end_date_label.setToolTip("""
+<b>Ende des Konsumzeitraums</b><br><br>
+<b>Standard:</b> Gleich wie Beginn-Datum<br>
+<b>Verwendung:</b> Endpunkt für Getränke-Verteilung<br>
+<b>Mehrtägig:</b> Möglich für längere Events
         """)
         
-        self.time_edit = QTimeEdit()
-        self.time_edit.setFont(QFont("Inter", 12))
-        self.time_edit.setTime(QTime.currentTime())
-        self.time_edit.setDisplayFormat("HH:mm")
-        self.time_edit.setMinimumHeight(35)  # Konsistente Höhe
-        self.time_edit.setToolTip("""
-<b>Zeitpunkt-spezifische Faktoren</b><br><br>
-<b>Konsumzeit beeinflusst:</b><br>
-• Resorptionsgeschwindigkeit<br>
-• Peak-BAK Höhe und Zeitpunkt<br>
-• Gesamteliminationsdauer<br><br>
-<b>Forensische Relevanz:</b> Rückrechnung zur Tatzeit
+        self.end_date_edit = QDateEdit()
+        self.end_date_edit.setFont(QFont("Inter", 12))
+        self.end_date_edit.setDate(QDate.currentDate())  # Standard: Heute
+        self.end_date_edit.setDisplayFormat("dd.MM.yyyy")
+        self.end_date_edit.setCalendarPopup(True)
+        self.end_date_edit.setMinimumHeight(35)
+        
+        # Tag beim Fokus markieren
+        def select_end_day_on_click():
+            lineedit = self.end_date_edit.lineEdit()
+            if lineedit:
+                lineedit.setSelection(0, 2)
+        
+        self.end_date_edit.installEventFilter(self)
+        self._select_end_day_callback = select_end_day_on_click
+        
+        end_date_layout.addWidget(end_date_label)
+        end_date_layout.addWidget(self.end_date_edit)
+        time_layout.addLayout(end_date_layout)
+        
+        # Ende-Uhrzeit
+        end_time_layout = QHBoxLayout()
+        end_time_layout.setSpacing(10)
+        end_time_label = QLabel("Ende-Uhrzeit:")
+        end_time_label.setFont(QFont("Inter", 12))
+        end_time_label.setMinimumWidth(120)
+        end_time_label.setToolTip("""
+<b>Endzeit des Konsums</b><br><br>
+<b>Standard:</b> Beginn-Zeit plus 30 Minuten<br>
+<b>Verwendung:</b> Endpunkt für gleichmäßige Verteilung
         """)
         
-        time_selection_layout.addWidget(time_label)
-        time_selection_layout.addWidget(self.time_edit)
-        time_layout.addLayout(time_selection_layout)
+        self.end_time_edit = QTimeEdit()
+        self.end_time_edit.setFont(QFont("Inter", 12))
+        # Standard: Beginn-Zeit plus 30 Minuten
+        end_time = current_time.addSecs(30 * 60)
+        self.end_time_edit.setTime(end_time)
+        self.end_time_edit.setDisplayFormat("HH:mm")
+        self.end_time_edit.setMinimumHeight(35)
+        
+        end_time_layout.addWidget(end_time_label)
+        end_time_layout.addWidget(self.end_time_edit)
+        time_layout.addLayout(end_time_layout)
         
         layout.addWidget(time_group)
+        
+        # Verteilungs-Optionen
+        distribution_group = QGroupBox("Verteilung")
+        distribution_group.setFont(QFont("Inter", 13, QFont.Weight.Bold))
+        distribution_layout = QVBoxLayout(distribution_group)
+        distribution_layout.setSpacing(10)
+        
+        from PyQt6.QtWidgets import QCheckBox
+        self.distribute_checkbox = QCheckBox("Getränke gleichmäßig verteilen")
+        self.distribute_checkbox.setFont(QFont("Inter", 12))
+        self.distribute_checkbox.setChecked(True)  # Standard: aktiviert
+        self.distribute_checkbox.setToolTip("""
+<b>Gleichmäßige Zeitverteilung</b><br><br>
+<b>Aktiviert:</b> Getränke werden gleichmäßig über den Zeitraum verteilt<br>
+<b>Deaktiviert:</b> Alle Getränke werden zum Beginn-Zeitpunkt hinzugefügt<br><br>
+<b>Berechnung:</b> Zeitintervall = (Ende - Beginn) / (Anzahl - 1)<br>
+<b>Beispiel:</b> 3 Getränke über 60 Min → 0, 30, 60 Min
+        """)
+        
+        distribution_layout.addWidget(self.distribute_checkbox)
+        layout.addWidget(distribution_group)
         
         # Abstand vor Buttons
         layout.addSpacing(10)
@@ -341,19 +428,80 @@ Der Zeitpunkt des Alkoholkonsums beeinflusst die Pharmakodynamik:<br>
     
     def get_drink_data(self):
         """Gibt die eingegebenen Getränke-Daten zurück"""
-        qt = self.time_edit.time()
-        qd = self.date_edit.date()
+        # Basis-Getränke-Daten
+        drink_name = self.drink_combo.currentText()
+        volume = self.volume_spin.value()
+        alcohol_content = self.alcohol_spin.value()
+        quantity = int(self.quantity_combo.currentText())
         
-        time_obj = time(hour=qt.hour(), minute=qt.minute())
-        date_obj = date(year=qd.year(), month=qd.month(), day=qd.day())
-        datetime_obj = datetime.combine(date_obj, time_obj)
+        # Zeitpunkte berechnen
+        start_date = self.start_date_edit.date()
+        start_time = self.start_time_edit.time()
+        end_date = self.end_date_edit.date()
+        end_time = self.end_time_edit.time()
         
-        return {
-            'name': self.drink_combo.currentText(),
-            'volume': self.volume_spin.value(),
-            'alcohol_content': self.alcohol_spin.value(),
-            'time': datetime_obj
-        }
+        # Datetime-Objekte erstellen
+        start_datetime = datetime.combine(
+            date(start_date.year(), start_date.month(), start_date.day()),
+            time(start_time.hour(), start_time.minute())
+        )
+        
+        end_datetime = datetime.combine(
+            date(end_date.year(), end_date.month(), end_date.day()),
+            time(end_time.hour(), end_time.minute())
+        )
+        
+        # Liste für alle Getränke
+        drinks_list = []
+        
+        if quantity == 1:
+            # Einzelnes Getränk: Beginn-Zeit verwenden
+            drinks_list.append({
+                'name': drink_name,
+                'volume': volume,
+                'alcohol_content': alcohol_content,
+                'time': start_datetime
+            })
+        else:
+            # Mehrere Getränke
+            if self.distribute_checkbox.isChecked():
+                # Gleichmäßig verteilen
+                if end_datetime <= start_datetime:
+                    # Fallback: Alle zur Startzeit wenn Ende <= Start
+                    for i in range(quantity):
+                        drinks_list.append({
+                            'name': drink_name,
+                            'volume': volume,
+                            'alcohol_content': alcohol_content,
+                            'time': start_datetime
+                        })
+                else:
+                    # Zeitintervall berechnen
+                    total_seconds = (end_datetime - start_datetime).total_seconds()
+                    if quantity > 1:
+                        interval_seconds = total_seconds / (quantity - 1)
+                    else:
+                        interval_seconds = 0
+                    
+                    for i in range(quantity):
+                        drink_time = start_datetime + timedelta(seconds=i * interval_seconds)
+                        drinks_list.append({
+                            'name': drink_name,
+                            'volume': volume,
+                            'alcohol_content': alcohol_content,
+                            'time': drink_time
+                        })
+            else:
+                # Alle zur Startzeit
+                for i in range(quantity):
+                    drinks_list.append({
+                        'name': drink_name,
+                        'volume': volume,
+                        'alcohol_content': alcohol_content,
+                        'time': start_datetime
+                    })
+        
+        return drinks_list
 
 class DrinksWidget(QWidget):
     """Widget für die Getränkeverwaltung"""
@@ -391,7 +539,7 @@ class DrinksWidget(QWidget):
         header_layout.addStretch()
         
         # Buttons
-        self.add_button = QPushButton("+ Getränk hinzufügen")
+        self.add_button = QPushButton("+ Getränke hinzufügen")
         self.add_button.setFont(QFont("Inter", 12))
         self.add_button.setStyleSheet("""
             QPushButton {
@@ -554,7 +702,7 @@ class DrinksWidget(QWidget):
         self.drinks_table.itemSelectionChanged.connect(self.on_selection_changed)
     
     def add_drink(self):
-        """Öffnet Dialog zum Hinzufügen eines Getränks"""
+        """Öffnet Dialog zum Hinzufügen von Getränken"""
         from datetime import datetime, timedelta
         dialog = AddDrinkDialog(self)
         
@@ -563,18 +711,27 @@ class DrinksWidget(QWidget):
             # Wenn bereits Getränke vorhanden sind, nimm das Datum des letzten Getränks
             last_drink = self.drinks_data[-1]
             last_time = last_drink['time']
-            dialog.date_edit.setDate(QDate(last_time.year, last_time.month, last_time.day))
+            dialog.start_date_edit.setDate(QDate(last_time.year, last_time.month, last_time.day))
+            dialog.end_date_edit.setDate(QDate(last_time.year, last_time.month, last_time.day))
             # Zeit = letzte Zeit + 30 Minuten für realistischen Abstand
             new_time = last_time + timedelta(minutes=30)
-            dialog.time_edit.setTime(QTime(new_time.hour, new_time.minute))
+            dialog.start_time_edit.setTime(QTime(new_time.hour, new_time.minute))
+            dialog.end_time_edit.setTime(QTime(new_time.hour, new_time.minute))
         else:
             # Erstes Getränk: Setze Standardzeit auf jetzt minus 30 Minuten
             now_minus_30 = datetime.now() - timedelta(minutes=30)
-            dialog.date_edit.setDate(QDate(now_minus_30.year, now_minus_30.month, now_minus_30.day))
-            dialog.time_edit.setTime(QTime(now_minus_30.hour, now_minus_30.minute))
+            dialog.start_date_edit.setDate(QDate(now_minus_30.year, now_minus_30.month, now_minus_30.day))
+            dialog.end_date_edit.setDate(QDate(now_minus_30.year, now_minus_30.month, now_minus_30.day))
+            dialog.start_time_edit.setTime(QTime(now_minus_30.hour, now_minus_30.minute))
+            # Ende-Zeit: 30 Minuten später
+            end_time = now_minus_30 + timedelta(minutes=30)
+            dialog.end_time_edit.setTime(QTime(end_time.hour, end_time.minute))
+            
         if dialog.exec() == QDialog.DialogCode.Accepted:
-            drink_data = dialog.get_drink_data()
-            self.drinks_data.append(drink_data)
+            drinks_list = dialog.get_drink_data()  # Jetzt eine Liste
+            # Alle Getränke zur Liste hinzufügen
+            for drink_data in drinks_list:
+                self.drinks_data.append(drink_data)
             self.update_table()
             self.update_summary()
             self.data_changed.emit()

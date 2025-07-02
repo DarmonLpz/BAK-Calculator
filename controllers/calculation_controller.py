@@ -304,7 +304,8 @@ class CalculationController(QObject):
         # Detaillierte Berechnung für Dokumentation
         individual_contributions = []
         for contrib in drink_contributions:
-            current_contrib_bac = self._calculate_single_drink_bac(now, contrib, elimination_rate)
+            # Verwende den gleichen target_time wie für die Haupt-BAK-Berechnung
+            current_contrib_bac = self._calculate_single_drink_bac(target_time, contrib, elimination_rate)
             individual_contributions.append({
                 'drink_number': contrib['drink_index'] + 1,
                 'alcohol_grams': contrib['alcohol_grams'],

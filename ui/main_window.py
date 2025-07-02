@@ -337,6 +337,9 @@ class MainWindow(QMainWindow):
         self.export_manager.export_progress.connect(self.progress_bar.setValue)
         self.export_manager.export_finished.connect(self.on_export_finished)
         
+        # Results Widget Export Requests
+        self.results_widget.export_requested.connect(self.on_export_requested)
+        
         # Theme Manager
         theme_manager.theme_changed.connect(self.on_theme_changed)
     
@@ -417,6 +420,35 @@ class MainWindow(QMainWindow):
     def on_theme_changed(self, theme_name):
         """Reagiert auf Theme-Änderung"""
         self.statusBar().showMessage(f"Theme geändert: {theme_name}", 2000)
+    
+    @pyqtSlot(str)
+    def on_export_requested(self, export_type):
+        """Reagiert auf Export-Anfrage vom Results Widget"""
+        data = self.gather_export_data()
+        
+        # Zusätzliche Daten für detaillierten Export
+        if export_type == 'pdf':
+            # Sicherstellen, dass die ausführliche Berechnung aktuell ist
+            if self.results_widget.results_data:
+                print("🔄 Aktualisiere ausführliche Berechnung vor PDF-Export")
+                self.results_widget.update_detail_tab(self.results_widget.results_data)
+                
+            # Hole HTML-Inhalt der ausführlichen Berechnung
+            detailed_html = self.results_widget.detail_text.toHtml()
+            print(f"🔍 HTML-Länge für PDF-Export: {len(detailed_html)} Zeichen")
+            
+            # Prüfe ob HTML-Inhalt vorhanden ist
+            if detailed_html and len(detailed_html) > 1000:  # Mindestens 1000 Zeichen für gültigen Inhalt
+                data['detailed_calculation_html'] = detailed_html
+                print("✅ Verwende ausführliche Berechnung für PDF-Export")
+            else:
+                print("⚠️ Keine ausführliche Berechnung verfügbar, verwende Standard-Format")
+                
+            self.export_manager.export_to_pdf(data)
+        elif export_type == 'csv':
+            self.export_manager.export_to_csv(data)
+        elif export_type == 'excel':
+            self.export_manager.export_to_excel(data)
     
     def update_current_bac_display(self, results):
         """Aktualisiert die aktuelle BAK-Anzeige"""
