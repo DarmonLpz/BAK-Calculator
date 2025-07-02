@@ -266,13 +266,21 @@ class CalculationController(QObject):
         
         # Generiert {len(bac_values)} BAK-Datenpunkte
         
-        # Aktuelle BAK und Peak-BAK berechnen
+        # BAK-Zeitpunkt basierend auf Einstellung bestimmen
+        target_time = now
+        if not self.settings_data.get('current_bac', True):
+            # Wenn nicht "aktuelle BAK", dann 30 Min nach letztem Getränk
+            if drinks:
+                last_drink_time = max(drink.time for drink in drinks)
+                target_time = last_drink_time + timedelta(minutes=30)
+        
+        # BAK zum Zielzeitpunkt und Peak-BAK berechnen
         current_bac = 0.0
         peak_bac = 0.0
         peak_time = None
         
         for time_point, bac_value in bac_values:
-            if time_point <= now:
+            if time_point <= target_time:
                 current_bac = bac_value
             if bac_value > peak_bac:
                 peak_bac = bac_value
@@ -310,6 +318,7 @@ class CalculationController(QObject):
         return {
             'peak_bac': round(peak_bac, 3),
             'current_bac': round(current_bac, 3),
+            'bac_calculation_time': target_time,  # Zeitpunkt der BAK-Berechnung
             'model': model.value,
             'alcohol_grams': round(total_alcohol, 1),
             'elimination_time': f"{(current_bac / elimination_rate):.1f} Stunden" if current_bac > 0 else "Bereits nüchtern",

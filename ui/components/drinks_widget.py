@@ -2,7 +2,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                             QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
                             QComboBox, QSpinBox, QDoubleSpinBox, QTimeEdit, QDateEdit, QGroupBox,
                             QMessageBox, QDialog, QDialogButtonBox)
-from PyQt6.QtCore import pyqtSignal, QTime, QDate, Qt
+from PyQt6.QtCore import pyqtSignal, QTime, QDate, Qt, QTimer
 from PyQt6.QtGui import QFont
 from datetime import datetime, time, date, timedelta
 from typing import List, Dict
@@ -38,6 +38,14 @@ class AddDrinkDialog(QDialog):
         
         self.setup_ui()
         self.load_default_drinks()
+    
+    def eventFilter(self, obj, event):
+        """Event-Filter für Tag-Markierung bei Datumsfeldern"""
+        from PyQt6.QtCore import QEvent
+        if obj == self.date_edit and event.type() == QEvent.Type.FocusIn:
+            if hasattr(self, '_select_day_callback'):
+                QTimer.singleShot(0, self._select_day_callback)
+        return super().eventFilter(obj, event)
     
     def setup_ui(self):
         """Erstellt die Dialog-UI"""
@@ -209,6 +217,17 @@ Der Zeitpunkt des Alkoholkonsums beeinflusst die Pharmakodynamik:<br>
         self.date_edit.setDisplayFormat("dd.MM.yyyy")
         self.date_edit.setCalendarPopup(True)
         self.date_edit.setMinimumHeight(35)  # Konsistente Höhe
+        
+        # Tag beim Fokus markieren - einfacher Ansatz
+        def select_day_on_click():
+            lineedit = self.date_edit.lineEdit()
+            if lineedit:
+                lineedit.setSelection(0, 2)
+        
+        # Connect zu focusInEvent über installEventFilter
+        self.date_edit.installEventFilter(self)
+        self._select_day_callback = select_day_on_click
+        
         self.date_edit.setToolTip("""
 <b>Datum für Konsumzeitpunkt</b><br><br>
 <b>Standard:</b> Heutiges Datum<br>
@@ -494,24 +513,26 @@ class DrinksWidget(QWidget):
     
     def setup_table(self):
         """Konfiguriert die Getränke-Tabelle"""
-        headers = ["Getränk", "Menge (ml)", "Alkohol (%)", "Datum", "Zeit", "Alkohol (g)"]
+        headers = ["Getränk", "#", "Menge (ml)", "Alkohol (%)", "Datum", "Zeit", "Alkohol (g)"]
         self.drinks_table.setColumnCount(len(headers))
         self.drinks_table.setHorizontalHeaderLabels(headers)
         
         # Spaltenbreiten
         header = self.drinks_table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)  # Getränk
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)    # Menge
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)    # Alkohol %
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)    # Datum
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)    # Zeit
-        header.setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)    # Alkohol g
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)    # Nummer
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)    # Menge
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)    # Alkohol %
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)    # Datum
+        header.setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)    # Zeit
+        header.setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)    # Alkohol g
         
-        self.drinks_table.setColumnWidth(1, 100)  # Menge
-        self.drinks_table.setColumnWidth(2, 100)  # Alkohol %
-        self.drinks_table.setColumnWidth(3, 120)  # Datum
-        self.drinks_table.setColumnWidth(4, 80)   # Zeit
-        self.drinks_table.setColumnWidth(5, 100)  # Alkohol g
+        self.drinks_table.setColumnWidth(1, 40)   # Nummer
+        self.drinks_table.setColumnWidth(2, 100)  # Menge
+        self.drinks_table.setColumnWidth(3, 100)  # Alkohol %
+        self.drinks_table.setColumnWidth(4, 120)  # Datum
+        self.drinks_table.setColumnWidth(5, 80)   # Zeit
+        self.drinks_table.setColumnWidth(6, 100)  # Alkohol g
         
         # Stil
         self.drinks_table.setAlternatingRowColors(True)
@@ -536,10 +557,21 @@ class DrinksWidget(QWidget):
         """Öffnet Dialog zum Hinzufügen eines Getränks"""
         from datetime import datetime, timedelta
         dialog = AddDrinkDialog(self)
-        # Setze Standardzeit auf jetzt minus 30 Minuten
-        now_minus_30 = datetime.now() - timedelta(minutes=30)
-        dialog.date_edit.setDate(QDate(now_minus_30.year, now_minus_30.month, now_minus_30.day))
-        dialog.time_edit.setTime(QTime(now_minus_30.hour, now_minus_30.minute))
+        
+        # Datum und Zeit basierend auf vorhandenen Getränken setzen
+        if self.drinks_data:
+            # Wenn bereits Getränke vorhanden sind, nimm das Datum des letzten Getränks
+            last_drink = self.drinks_data[-1]
+            last_time = last_drink['time']
+            dialog.date_edit.setDate(QDate(last_time.year, last_time.month, last_time.day))
+            # Zeit = letzte Zeit + 30 Minuten für realistischen Abstand
+            new_time = last_time + timedelta(minutes=30)
+            dialog.time_edit.setTime(QTime(new_time.hour, new_time.minute))
+        else:
+            # Erstes Getränk: Setze Standardzeit auf jetzt minus 30 Minuten
+            now_minus_30 = datetime.now() - timedelta(minutes=30)
+            dialog.date_edit.setDate(QDate(now_minus_30.year, now_minus_30.month, now_minus_30.day))
+            dialog.time_edit.setTime(QTime(now_minus_30.hour, now_minus_30.minute))
         if dialog.exec() == QDialog.DialogCode.Accepted:
             drink_data = dialog.get_drink_data()
             self.drinks_data.append(drink_data)
@@ -590,37 +622,55 @@ class DrinksWidget(QWidget):
         
         self.drinks_table.setRowCount(len(self.drinks_data))
         
+        # Zähler für Getränketypen erstellen
+        drink_counters = {}
+        
         for row, drink in enumerate(self.drinks_data):
+            drink_name = drink['name']
+            
+            # Zähler für diesen Getränketyp erhöhen
+            if drink_name not in drink_counters:
+                drink_counters[drink_name] = 0
+            drink_counters[drink_name] += 1
+            
             # Getränkename (editierbar)
-            name_item = QTableWidgetItem(drink['name'])
+            name_item = QTableWidgetItem(drink_name)
             name_item.setFlags(name_item.flags() | Qt.ItemFlag.ItemIsEditable)
             self.drinks_table.setItem(row, 0, name_item)
+            
+            # Nummer für diesen Getränketyp (nicht editierbar)
+            number_item = QTableWidgetItem(str(drink_counters[drink_name]))
+            number_item.setFlags(number_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            number_item.setBackground(Qt.GlobalColor.lightGray)
+            number_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            number_item.setToolTip(f"Nummer des {drink_name}s in chronologischer Reihenfolge")
+            self.drinks_table.setItem(row, 1, number_item)
             
             # Menge (editierbar)
             volume_item = QTableWidgetItem(f"{drink['volume']}")
             volume_item.setFlags(volume_item.flags() | Qt.ItemFlag.ItemIsEditable)
             volume_item.setToolTip("Doppelklick zum Bearbeiten der Menge")
-            self.drinks_table.setItem(row, 1, volume_item)
+            self.drinks_table.setItem(row, 2, volume_item)
             
             # Alkoholgehalt (editierbar)
             alcohol_item = QTableWidgetItem(f"{drink['alcohol_content']}")
             alcohol_item.setFlags(alcohol_item.flags() | Qt.ItemFlag.ItemIsEditable)
             alcohol_item.setToolTip("Doppelklick zum Bearbeiten des Alkoholgehalts")
-            self.drinks_table.setItem(row, 2, alcohol_item)
+            self.drinks_table.setItem(row, 3, alcohol_item)
             
             # Datum (editierbar)
             date_str = drink['time'].strftime('%d.%m.%Y')
             date_item = QTableWidgetItem(date_str)
             date_item.setFlags(date_item.flags() | Qt.ItemFlag.ItemIsEditable)
             date_item.setToolTip("Doppelklick zum Bearbeiten (Format: TT.MM.JJJJ)")
-            self.drinks_table.setItem(row, 3, date_item)
+            self.drinks_table.setItem(row, 4, date_item)
             
             # Zeit (editierbar)
             time_str = drink['time'].strftime('%H:%M')
             time_item = QTableWidgetItem(time_str)
             time_item.setFlags(time_item.flags() | Qt.ItemFlag.ItemIsEditable)
             time_item.setToolTip("Doppelklick zum Bearbeiten (Format: HH:MM)")
-            self.drinks_table.setItem(row, 4, time_item)
+            self.drinks_table.setItem(row, 5, time_item)
             
             # Alkohol in Gramm (nicht editierbar - automatisch berechnet)
             try:
@@ -631,7 +681,7 @@ class DrinksWidget(QWidget):
             alcohol_item.setFlags(alcohol_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             alcohol_item.setBackground(Qt.GlobalColor.lightGray)
             alcohol_item.setToolTip("Automatisch berechnet: Volumen × Alkohol% × 0.789")
-            self.drinks_table.setItem(row, 5, alcohol_item)
+            self.drinks_table.setItem(row, 6, alcohol_item)
         
         # Signal wieder connecten
         self.drinks_table.cellChanged.connect(self.on_cell_changed)
@@ -765,7 +815,10 @@ class DrinksWidget(QWidget):
                     # Ungültiger Name - zurücksetzen
                     self.drinks_table.item(row, column).setText(drink['name'])
             
-            elif column == 1:  # Menge
+            elif column == 1:  # Nummer (nicht editierbar - wird ignoriert)
+                pass
+            
+            elif column == 2:  # Menge
                 try:
                     new_volume = float(self.drinks_table.item(row, column).text().replace(',', '.'))
                     if 0 < new_volume <= 5000:  # Sinnvolle Grenzen
@@ -778,7 +831,7 @@ class DrinksWidget(QWidget):
                     QMessageBox.warning(self, "Ungültiger Wert", 
                                       "Bitte geben Sie ein gültiges Volumen zwischen 1 und 5000 ml ein.")
             
-            elif column == 2:  # Alkoholgehalt
+            elif column == 3:  # Alkoholgehalt
                 try:
                     new_alcohol = float(self.drinks_table.item(row, column).text().replace(',', '.'))
                     if 0 <= new_alcohol <= 100:  # 0-100%
@@ -791,7 +844,7 @@ class DrinksWidget(QWidget):
                     QMessageBox.warning(self, "Ungültiger Wert", 
                                       "Bitte geben Sie einen gültigen Alkoholgehalt zwischen 0 und 100% ein.")
             
-            elif column == 3:  # Datum
+            elif column == 4:  # Datum
                 try:
                     date_str = self.drinks_table.item(row, column).text().strip()
                     # Versuche verschiedene Formate
@@ -813,7 +866,7 @@ class DrinksWidget(QWidget):
                     QMessageBox.warning(self, "Ungültiges Datum", 
                                       "Bitte geben Sie ein gültiges Datum im Format TT.MM.JJJJ ein.")
             
-            elif column == 4:  # Zeit
+            elif column == 5:  # Zeit
                 try:
                     time_str = self.drinks_table.item(row, column).text().strip()
                     new_time = datetime.strptime(time_str, '%H:%M').time()

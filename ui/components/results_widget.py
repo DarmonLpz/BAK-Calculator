@@ -2,7 +2,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                             QTableWidget, QTableWidgetItem, QHeaderView, QGroupBox,
                             QScrollArea, QPushButton, QSplitter, QTabWidget, QTextEdit,
                             QDateEdit, QTimeEdit, QDoubleSpinBox, QComboBox)
-from PyQt6.QtCore import Qt, pyqtSignal, QDate, QTime
+from PyQt6.QtCore import Qt, pyqtSignal, QDate, QTime, QTimer
 from PyQt6.QtGui import QFont, QPalette
 from typing import Dict, List, Any
 from datetime import datetime, date, time
@@ -189,6 +189,14 @@ class ResultsWidget(QWidget):
         self.results_data = {}
         self.setup_ui()
     
+    def eventFilter(self, obj, event):
+        """Event-Filter für Tag-Markierung bei Datumsfeldern"""
+        from PyQt6.QtCore import QEvent
+        if obj == self.measurement_date and event.type() == QEvent.Type.FocusIn:
+            if hasattr(self, '_select_day_callback'):
+                QTimer.singleShot(0, self._select_day_callback)
+        return super().eventFilter(obj, event)
+    
     def setup_ui(self):
         """Erstellt die UI-Komponenten"""
         layout = QVBoxLayout(self)
@@ -281,10 +289,10 @@ class ResultsWidget(QWidget):
         widget = QWidget()
         layout = QVBoxLayout(widget)
         
-        # Aktuelle BAK - großer Display
-        current_bac_group = QGroupBox("Aktuelle BAK")
-        current_bac_group.setFont(QFont("Inter", 14, QFont.Weight.Bold))
-        current_bac_layout = QVBoxLayout(current_bac_group)
+        # BAK-Display - dynamischer Titel
+        self.current_bac_group = QGroupBox("Aktuelle BAK")
+        self.current_bac_group.setFont(QFont("Inter", 14, QFont.Weight.Bold))
+        current_bac_layout = QVBoxLayout(self.current_bac_group)
         
         self.current_bac_display = QLabel("0.00 ‰")
         self.current_bac_display.setFont(QFont("Inter", 48, QFont.Weight.Bold))
@@ -307,7 +315,7 @@ class ResultsWidget(QWidget):
         self.status_label.setStyleSheet("color: #4CAF50; margin: 5px;")
         current_bac_layout.addWidget(self.status_label)
         
-        layout.addWidget(current_bac_group)
+        layout.addWidget(self.current_bac_group)
         
         # Zusammenfassung
         summary_group = QGroupBox("Zusammenfassung")
@@ -348,9 +356,9 @@ class ResultsWidget(QWidget):
         self.results_table.setFont(QFont("Inter", 11))
         
         # Spalten definieren
-        headers = ["Modell", "Aktuelle BAK", "Max. BAK", "Zeit bis 0.5‰", "Zeit bis 0.0‰"]
-        self.results_table.setColumnCount(len(headers))
-        self.results_table.setHorizontalHeaderLabels(headers)
+        self.table_headers = ["Modell", "BAK", "Max. BAK", "Zeit bis 0.5‰", "Zeit bis 0.0‰"]
+        self.results_table.setColumnCount(len(self.table_headers))
+        self.results_table.setHorizontalHeaderLabels(self.table_headers)
         
         # Spaltenbreiten
         header = self.results_table.horizontalHeader()
@@ -380,11 +388,20 @@ class ResultsWidget(QWidget):
             self.clear_results()
             return
         
+        # BAK-Zeitpunkt und Titel bestimmen
+        first_result = next(iter(results.values()))
+        bac_calculation_time = first_result.get('bac_calculation_time')
+        if bac_calculation_time:
+            time_str = bac_calculation_time.strftime('%d.%m.%Y %H:%M')
+            self.current_bac_group.setTitle(f"BAK am {time_str}")
+        else:
+            self.current_bac_group.setTitle("Aktuelle BAK")
+        
         # Aktuelle BAK berechnen (Durchschnitt aller Modelle)
         current_bac_values = [result.get('current_bac', 0.0) for result in results.values()]
         avg_current_bac = sum(current_bac_values) / len(current_bac_values) if current_bac_values else 0.0
         
-        # Aktuelle BAK anzeigen
+        # BAK anzeigen
         self.current_bac_display.setText(f"{avg_current_bac:.2f} ‰")
         
         # BAK-Status und Farbe
@@ -464,6 +481,17 @@ class ResultsWidget(QWidget):
     
     def update_results_table(self, results: Dict):
         """Aktualisiert die Ergebnisse-Tabelle"""
+        # Dynamischen BAK-Header setzen
+        if results:
+            first_result = next(iter(results.values()))
+            bac_calculation_time = first_result.get('bac_calculation_time')
+            if bac_calculation_time:
+                time_str = bac_calculation_time.strftime('%H:%M')
+                self.table_headers[1] = f"BAK {time_str}"
+            else:
+                self.table_headers[1] = "BAK"
+            self.results_table.setHorizontalHeaderLabels(self.table_headers)
+        
         self.results_table.setRowCount(len(results))
         
         for row, (model, result) in enumerate(results.items()):
@@ -509,6 +537,9 @@ class ResultsWidget(QWidget):
     def clear_results(self):
         """Leert alle Ergebnisse"""
         self.results_data = {}
+        
+        # Titel zurücksetzen
+        self.current_bac_group.setTitle("BAK")
         
         # BAK-Display zurücksetzen
         self.current_bac_display.setText("N/A")
@@ -886,6 +917,17 @@ class ResultsWidget(QWidget):
         self.measurement_date.setCalendarPopup(True)
         self.measurement_date.setMinimumHeight(35)
         self.measurement_date.setFont(QFont("Inter", 12))
+        
+        # Tag beim Fokus markieren - einfacher Ansatz
+        def select_day_on_click():
+            lineedit = self.measurement_date.lineEdit()
+            if lineedit:
+                lineedit.setSelection(0, 2)
+        
+        # Connect zu focusInEvent über installEventFilter
+        self.measurement_date.installEventFilter(self)
+        self._select_day_callback = select_day_on_click
+        
         datetime_layout.addWidget(self.measurement_date)
         
         datetime_layout.addWidget(QLabel("Messuhrzeit:"))

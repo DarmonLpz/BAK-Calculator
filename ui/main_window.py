@@ -136,17 +136,17 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(bac_widget)
         layout.setContentsMargins(10, 5, 10, 5)
         
-        title = QLabel("Aktuelle BAK")
-        title.setFont(FontManager.get_font('caption'))
-        title.setStyleSheet("color: rgba(255, 255, 255, 0.8);")
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.bac_title_label = QLabel("BAK")
+        self.bac_title_label.setFont(FontManager.get_font('caption'))
+        self.bac_title_label.setStyleSheet("color: rgba(255, 255, 255, 0.8);")
+        self.bac_title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         self.bac_value_label = QLabel("0.00 ‰")
         self.bac_value_label.setFont(FontManager.get_font('h4', 'bold'))
         self.bac_value_label.setStyleSheet("color: white;")
         self.bac_value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
-        layout.addWidget(title)
+        layout.addWidget(self.bac_title_label)
         layout.addWidget(self.bac_value_label)
         
         return bac_widget
@@ -422,11 +422,21 @@ class MainWindow(QMainWindow):
         """Aktualisiert die aktuelle BAK-Anzeige"""
         if not results:
             self.bac_value_label.setText("0.00 ‰")
+            self.bac_title_label.setText("BAK")
             return
         
         # Nimm den ersten verfügbaren Wert
         first_model = next(iter(results.keys()))
-        current_bac = results[first_model].get('current_bac', 0.0)
+        first_result = results[first_model]
+        current_bac = first_result.get('current_bac', 0.0)
+        
+        # Titel basierend auf BAK-Zeitpunkt setzen
+        bac_calculation_time = first_result.get('bac_calculation_time')
+        if bac_calculation_time:
+            time_str = bac_calculation_time.strftime('%H:%M')
+            self.bac_title_label.setText(f"BAK {time_str}")
+        else:
+            self.bac_title_label.setText("BAK")
         
         self.bac_value_label.setText(f"{current_bac:.2f} ‰")
         

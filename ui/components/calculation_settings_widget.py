@@ -199,6 +199,27 @@ Anteil des Alkohols, der nicht ins Blut gelangt:<br>
         
         layout.addWidget(resorption_group)
         
+        # BAK-Zeitpunkt-Einstellungen
+        bac_timing_group = QGroupBox("BAK-Zeitpunkt")
+        bac_timing_group.setFont(QFont("Inter", 14, QFont.Weight.Bold))
+        bac_timing_layout = QVBoxLayout(bac_timing_group)
+        
+        self.current_bac_checkbox = QCheckBox("Aktuelle BAK bestimmen")
+        self.current_bac_checkbox.setFont(QFont("Inter", 12))
+        self.current_bac_checkbox.setChecked(True)  # Standardmäßig aktiviert
+        self.current_bac_checkbox.setToolTip("""
+<b>BAK-Zeitpunkt-Bestimmung</b><br><br>
+<b>Aktiviert:</b> BAK wird zum aktuellen Zeitpunkt berechnet<br>
+<b>Deaktiviert:</b> BAK wird 30 Minuten nach dem letzten Getränk berechnet<br><br>
+<b>Anwendungsfälle:</b><br>
+• <b>Aktuell:</b> "Wie betrunken bin ich jetzt?"<br>
+• <b>30 Min später:</b> "Wie betrunken war ich nach dem Trinken?"<br><br>
+<b>Forensische Relevanz:</b> Oft ist der Zeitpunkt 30 Minuten nach dem letzten Getränk relevant für Rückrechnungen
+        """)
+        
+        bac_timing_layout.addWidget(self.current_bac_checkbox)
+        layout.addWidget(bac_timing_group)
+        
         # Eliminationseinstellungen
         elimination_group = QGroupBox("Elimination")
         elimination_group.setFont(QFont("Inter", 14, QFont.Weight.Bold))
@@ -356,6 +377,9 @@ Nahrung beeinflusst massiv die Alkoholresorption:<br>
         for checkbox in self.model_checkboxes.values():
             checkbox.stateChanged.connect(self.data_changed.emit)
         
+        # BAK-Zeitpunkt
+        self.current_bac_checkbox.stateChanged.connect(self.data_changed.emit)
+        
         # Resorption
         self.resorption_time_combo.currentTextChanged.connect(self.data_changed.emit)
         self.resorption_deficit_slider.valueChanged.connect(self.update_resorption_deficit_label)
@@ -413,6 +437,7 @@ Nahrung beeinflusst massiv die Alkoholresorption:<br>
         
         return {
             'models': selected_models,
+            'current_bac': self.current_bac_checkbox.isChecked(),
             'resorption_time': self.resorption_time_combo.currentText(),
             'resorption_deficit': self.resorption_deficit_slider.value(),
             'elimination_rate': self.elimination_rate_combo.currentText(),
@@ -426,6 +451,10 @@ Nahrung beeinflusst massiv die Alkoholresorption:<br>
         if 'models' in data:
             for model_name, checkbox in self.model_checkboxes.items():
                 checkbox.setChecked(model_name in data['models'])
+        
+        # BAK-Zeitpunkt
+        if 'current_bac' in data:
+            self.current_bac_checkbox.setChecked(data['current_bac'])
         
         # Andere Einstellungen
         if 'resorption_time' in data:
