@@ -460,21 +460,22 @@ Der Zeitpunkt des Alkoholkonsums beeinflusst die Pharmakodynamik:<br>
                 'name': drink_name,
                 'volume': volume,
                 'alcohol_content': alcohol_content,
+                'quantity': 1,
                 'time': start_datetime
             })
         else:
             # Mehrere Getränke
             if self.distribute_checkbox.isChecked():
-                # Gleichmäßig verteilen
+                # Gleichmäßig verteilen - separate Einträge für verschiedene Zeiten
                 if end_datetime <= start_datetime:
                     # Fallback: Alle zur Startzeit wenn Ende <= Start
-                    for i in range(quantity):
-                        drinks_list.append({
-                            'name': drink_name,
-                            'volume': volume,
-                            'alcohol_content': alcohol_content,
-                            'time': start_datetime
-                        })
+                    drinks_list.append({
+                        'name': drink_name,
+                        'volume': volume,
+                        'alcohol_content': alcohol_content,
+                        'quantity': quantity,
+                        'time': start_datetime
+                    })
                 else:
                     # Zeitintervall berechnen
                     total_seconds = (end_datetime - start_datetime).total_seconds()
@@ -489,17 +490,18 @@ Der Zeitpunkt des Alkoholkonsums beeinflusst die Pharmakodynamik:<br>
                             'name': drink_name,
                             'volume': volume,
                             'alcohol_content': alcohol_content,
+                            'quantity': 1,
                             'time': drink_time
                         })
             else:
-                # Alle zur Startzeit
-                for i in range(quantity):
-                    drinks_list.append({
-                        'name': drink_name,
-                        'volume': volume,
-                        'alcohol_content': alcohol_content,
-                        'time': start_datetime
-                    })
+                # Alle zur Startzeit - ein Eintrag mit Anzahl
+                drinks_list.append({
+                    'name': drink_name,
+                    'volume': volume,
+                    'alcohol_content': alcohol_content,
+                    'quantity': quantity,
+                    'time': start_datetime
+                })
         
         return drinks_list
 
@@ -661,7 +663,7 @@ class DrinksWidget(QWidget):
     
     def setup_table(self):
         """Konfiguriert die Getränke-Tabelle"""
-        headers = ["Getränk", "#", "Menge (ml)", "Alkohol (%)", "Datum", "Zeit", "Alkohol (g)"]
+        headers = ["Getränk", "Anzahl", "Menge (ml)", "Alkohol (%)", "Datum", "Zeit", "Alkohol (g)"]
         self.drinks_table.setColumnCount(len(headers))
         self.drinks_table.setHorizontalHeaderLabels(headers)
         
@@ -675,7 +677,7 @@ class DrinksWidget(QWidget):
         header.setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)    # Zeit
         header.setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)    # Alkohol g
         
-        self.drinks_table.setColumnWidth(1, 40)   # Nummer
+        self.drinks_table.setColumnWidth(1, 60)   # Anzahl
         self.drinks_table.setColumnWidth(2, 100)  # Menge
         self.drinks_table.setColumnWidth(3, 100)  # Alkohol %
         self.drinks_table.setColumnWidth(4, 120)  # Datum
@@ -795,13 +797,13 @@ class DrinksWidget(QWidget):
             name_item.setFlags(name_item.flags() | Qt.ItemFlag.ItemIsEditable)
             self.drinks_table.setItem(row, 0, name_item)
             
-            # Nummer für diesen Getränketyp (nicht editierbar)
-            number_item = QTableWidgetItem(str(drink_counters[drink_name]))
-            number_item.setFlags(number_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            number_item.setBackground(Qt.GlobalColor.lightGray)
-            number_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            number_item.setToolTip(f"Nummer des {drink_name}s in chronologischer Reihenfolge")
-            self.drinks_table.setItem(row, 1, number_item)
+            # Anzahl (editierbar) - Standard: 1, falls nicht vorhanden
+            quantity = drink.get('quantity', 1)
+            quantity_item = QTableWidgetItem(str(quantity))
+            quantity_item.setFlags(quantity_item.flags() | Qt.ItemFlag.ItemIsEditable)
+            quantity_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            quantity_item.setToolTip("Doppelklick zum Bearbeiten der Anzahl (1-99)\n\nBeispiel: 3 = drei identische Getränke zur gleichen Zeit")
+            self.drinks_table.setItem(row, 1, quantity_item)
             
             # Menge (editierbar)
             volume_item = QTableWidgetItem(f"{drink['volume']}")
@@ -831,13 +833,13 @@ class DrinksWidget(QWidget):
             
             # Alkohol in Gramm (nicht editierbar - automatisch berechnet)
             try:
-                alcohol_grams = float(drink['volume']) * float(drink['alcohol_content']) / 100 * 0.789
+                alcohol_grams = float(drink['volume']) * float(drink['alcohol_content']) / 100 * 0.789 * quantity
             except Exception:
                 alcohol_grams = 0.0
             alcohol_item = QTableWidgetItem(f"{alcohol_grams:.1f} g")
             alcohol_item.setFlags(alcohol_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             alcohol_item.setBackground(Qt.GlobalColor.lightGray)
-            alcohol_item.setToolTip("Automatisch berechnet: Volumen × Alkohol% × 0.789")
+            alcohol_item.setToolTip(f"Automatisch berechnet: Volumen × Alkohol% × 0.789 × Anzahl ({quantity})")
             self.drinks_table.setItem(row, 6, alcohol_item)
         
         # Signal wieder connecten
@@ -854,12 +856,12 @@ class DrinksWidget(QWidget):
         
         # Gesamtalkohol berechnen
         total_alcohol = sum(
-            drink['volume'] * (drink['alcohol_content'] / 100) * 0.8
+            drink['volume'] * (drink['alcohol_content'] / 100) * 0.8 * drink.get('quantity', 1)
             for drink in self.drinks_data
         )
         
         # Anzahl Getränke
-        drink_count = len(self.drinks_data)
+        drink_count = sum(drink.get('quantity', 1) for drink in self.drinks_data)
         
         # Zeitspanne berechnen
         if drink_count > 1:
@@ -902,6 +904,14 @@ class DrinksWidget(QWidget):
                 d['alcohol_content'] = float(d['alcohol_content'])
             except Exception:
                 d['alcohol_content'] = 0.0
+            # Quantity-Feld sicherstellen
+            if 'quantity' not in d:
+                d['quantity'] = 1
+            else:
+                try:
+                    d['quantity'] = int(d['quantity'])
+                except Exception:
+                    d['quantity'] = 1
             # Zeitfeld sicherstellen
             if not isinstance(d['time'], datetime):
                 # Versuche verschiedene Formate
@@ -929,18 +939,21 @@ class DrinksWidget(QWidget):
                 'name': 'Bier (Pils)',
                 'volume': 500,
                 'alcohol_content': 4.8,
+                'quantity': 1,
                 'time': datetime.combine(today, time(hour=19, minute=30))
             },
             {
                 'name': 'Bier (Pils)',
                 'volume': 500,
                 'alcohol_content': 4.8,
+                'quantity': 1,
                 'time': datetime.combine(today, time(hour=20, minute=45))
             },
             {
                 'name': 'Wein (Rot)',
                 'volume': 200,
                 'alcohol_content': 12.5,
+                'quantity': 1,
                 'time': datetime.combine(today, time(hour=22, minute=15))
             }
         ]
@@ -972,8 +985,19 @@ class DrinksWidget(QWidget):
                     # Ungültiger Name - zurücksetzen
                     self.drinks_table.item(row, column).setText(drink['name'])
             
-            elif column == 1:  # Nummer (nicht editierbar - wird ignoriert)
-                pass
+            elif column == 1:  # Anzahl
+                try:
+                    new_quantity = int(self.drinks_table.item(row, column).text().strip())
+                    if 1 <= new_quantity <= 99:
+                        drink['quantity'] = new_quantity
+                    else:
+                        raise ValueError("Anzahl außerhalb des gültigen Bereichs (1-99)")
+                except ValueError:
+                    # Ungültiger Wert - zurücksetzen
+                    current_quantity = drink.get('quantity', 1)
+                    self.drinks_table.item(row, column).setText(str(current_quantity))
+                    QMessageBox.warning(self, "Ungültige Anzahl", 
+                                      "Bitte geben Sie eine gültige Anzahl (1-99) ein.")
             
             elif column == 2:  # Menge
                 try:
@@ -1052,6 +1076,14 @@ class DrinksWidget(QWidget):
                     d['alcohol_content'] = float(d['alcohol_content'])
                 except Exception:
                     d['alcohol_content'] = 0.0
+                # Quantity-Feld sicherstellen
+                if 'quantity' not in d:
+                    d['quantity'] = 1
+                else:
+                    try:
+                        d['quantity'] = int(d['quantity'])
+                    except Exception:
+                        d['quantity'] = 1
                 if not isinstance(d['time'], datetime):
                     try:
                         d['time'] = datetime.strptime(d['time'], '%d.%m.%Y %H:%M')

@@ -38,11 +38,12 @@ class Drink:
     volume: float  # in ml
     alcohol_content: float  # in %
     time: datetime
+    quantity: int = 1  # Anzahl der Getränke (Standard: 1)
     
     def get_alcohol_grams(self) -> float:
-        """Berechnet die Alkoholmenge in Gramm"""
+        """Berechnet die Alkoholmenge in Gramm (inklusive Anzahl)"""
         # Alkohol hat eine Dichte von 0.789 g/ml
-        return self.volume * (self.alcohol_content / 100) * 0.789
+        return self.volume * (self.alcohol_content / 100) * 0.789 * self.quantity
 
 @dataclass
 class CalculationSettings:

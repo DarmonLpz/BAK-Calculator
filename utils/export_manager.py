@@ -894,10 +894,11 @@ class ExportThread(QThread):
             drinks_table_data = [['Getränk', 'Menge (ml)', 'Alkohol (%)', 'Zeit', 'Alkohol (g)']]
             
             for drink in self.data['drinks_data']:
-                alcohol_grams = drink['volume'] * (drink['alcohol_content'] / 100) * 0.8
+                quantity = drink.get('quantity', 1)
+                alcohol_grams = drink['volume'] * (drink['alcohol_content'] / 100) * 0.8 * quantity
                 drinks_table_data.append([
                     drink['name'],
-                    str(drink['volume']),
+                    f"{drink['volume']} × {quantity}",
                     f"{drink['alcohol_content']:.1f}",
                     drink['time'].strftime('%H:%M') if isinstance(drink['time'], datetime) else str(drink['time']),
                     f"{alcohol_grams:.1f}"
@@ -1148,10 +1149,11 @@ class ExportThread(QThread):
                 writer.writerow(['Getränk', 'Menge (ml)', 'Alkohol (%)', 'Zeit', 'Alkohol (g)'])
                 
                 for drink in self.data['drinks_data']:
-                    alcohol_grams = drink['volume'] * (drink['alcohol_content'] / 100) * 0.8
+                    quantity = drink.get('quantity', 1)
+                    alcohol_grams = drink['volume'] * (drink['alcohol_content'] / 100) * 0.8 * quantity
                     writer.writerow([
                         drink['name'],
-                        drink['volume'],
+                        f"{drink['volume']} × {quantity}",
                         f"{drink['alcohol_content']:.1f}",
                         drink['time'].strftime('%H:%M') if isinstance(drink['time'], datetime) else str(drink['time']),
                         f"{alcohol_grams:.1f}"
@@ -1264,9 +1266,10 @@ class ExportThread(QThread):
                 cell.fill = PatternFill(start_color="CCCCCC", end_color="CCCCCC", fill_type="solid")
             
             for row, drink in enumerate(self.data['drinks_data'], start=2):
-                alcohol_grams = drink['volume'] * (drink['alcohol_content'] / 100) * 0.8
+                quantity = drink.get('quantity', 1)
+                alcohol_grams = drink['volume'] * (drink['alcohol_content'] / 100) * 0.8 * quantity
                 ws_drinks.cell(row=row, column=1, value=drink['name'])
-                ws_drinks.cell(row=row, column=2, value=drink['volume'])
+                ws_drinks.cell(row=row, column=2, value=f"{drink['volume']} × {quantity}")
                 ws_drinks.cell(row=row, column=3, value=drink['alcohol_content'])
                 ws_drinks.cell(row=row, column=4, value=drink['time'].strftime('%H:%M') if isinstance(drink['time'], datetime) else str(drink['time']))
                 ws_drinks.cell(row=row, column=5, value=round(alcohol_grams, 1))

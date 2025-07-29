@@ -109,7 +109,8 @@ class CalculationController(QObject):
                 name=drink_data['name'],
                 volume=drink_data['volume'],
                 alcohol_content=drink_data['alcohol_content'],
-                time=drink_data['time']
+                time=drink_data['time'],
+                quantity=drink_data.get('quantity', 1)  # Anzahl berücksichtigen
             )
             drinks.append(drink)
         
@@ -606,12 +607,14 @@ class CalculationController(QObject):
                     hours_since_drink = (current_time - drink['time']).total_seconds() / 3600
                     if hours_since_drink <= 1.0:  # Resorptionsphase
                         progress = min(1.0, hours_since_drink)
-                        alcohol_grams = drink['volume'] * (drink['alcohol_content'] / 100) * 0.8
+                        quantity = drink.get('quantity', 1)
+                        alcohol_grams = drink['volume'] * (drink['alcohol_content'] / 100) * 0.8 * quantity
                         r_factor = 0.68 if gender == 'Männlich' else 0.55
                         drink_bac = (alcohol_grams / (weight * r_factor)) * progress
                         total_resorption += drink_bac
                     else:  # Nach Resorption: volle BAK
-                        alcohol_grams = drink['volume'] * (drink['alcohol_content'] / 100) * 0.8
+                        quantity = drink.get('quantity', 1)
+                        alcohol_grams = drink['volume'] * (drink['alcohol_content'] / 100) * 0.8 * quantity
                         r_factor = 0.68 if gender == 'Männlich' else 0.55
                         drink_bac = alcohol_grams / (weight * r_factor)
                         total_resorption += drink_bac
