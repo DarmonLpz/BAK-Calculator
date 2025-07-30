@@ -1,0 +1,7 @@
+{
+  "provider": "OpenAI (Cloud)",
+  "openai_model": "gpt-4",
+  "ollama_url": "http://localhost:11434",
+  "ollama_model": "llama3.1",
+  "openai_api_key": "gAAAAABoiS8LpS5sjEFjRPBfFAJua_PImtQBEPy0tnEtZ6TFQAm_aLXApXSprdi3zghHspSKnPxn5iTiJa_izsav6W-CRNtJOCloGmA_j-HonTlx3zrrJaj95cTzk1GCH2T80F1elVdhg9dSb5CLtJOSKM_m8Wze1KICtphQCYdXUhTzqa_YPZ5I3HloUf3wLzu4M9oCjX7iLEPHJy0RdfMAvelsLm47pRFmlgCyoBSGvZC8MkkK88wiWyLa31aOCGnHYtIwOWnaPDPDNa2bKL8D-gJv71H30iCK7KdUeTpk8g0CuXW4rDs="
+}

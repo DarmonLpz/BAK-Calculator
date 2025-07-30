@@ -331,9 +331,15 @@ class ResultsWidget(QWidget):
         self.time_to_drive_label = QLabel("Fahrtüchtig ab: --")
         self.time_to_drive_label.setFont(QFont("Inter", 12))
         
+        # Gemessener BAK-Wert
+        self.measured_bac_label = QLabel("Gemessener BAK: --")
+        self.measured_bac_label.setFont(QFont("Inter", 12))
+        self.measured_bac_label.setStyleSheet("color: #9C27B0; font-weight: bold;")
+        
         summary_layout.addWidget(self.peak_bac_label)
         summary_layout.addWidget(self.time_to_sober_label)
         summary_layout.addWidget(self.time_to_drive_label)
+        summary_layout.addWidget(self.measured_bac_label)
         
         layout.addWidget(summary_group)
         
@@ -480,6 +486,21 @@ class ResultsWidget(QWidget):
             self.time_to_sober_label.setText(f"Nüchtern ab: {earliest_00.strftime('%H:%M')}")
         else:
             self.time_to_sober_label.setText("Nüchtern ab: --")
+        
+        # Gemessenen BAK-Wert anzeigen (falls verfügbar)
+        measured_bac = 0.0
+        if results:
+            # Versuche den gemessenen BAK-Wert aus den Ergebnissen zu holen
+            for result in results.values():
+                if isinstance(result, dict) and 'measured_bac' in result:
+                    measured_bac = result.get('measured_bac', 0.0)
+                    break
+        
+        if measured_bac > 0:
+            self.measured_bac_label.setText(f"Gemessener BAK: {measured_bac:.2f} ‰")
+            self.measured_bac_label.setVisible(True)
+        else:
+            self.measured_bac_label.setVisible(False)
     
     def update_results_table(self, results: Dict):
         """Aktualisiert die Ergebnisse-Tabelle"""
@@ -563,6 +584,9 @@ class ResultsWidget(QWidget):
         self.peak_bac_label.setText("Max. BAK: N/A")
         self.time_to_sober_label.setText("Nüchtern ab: N/A")
         self.time_to_drive_label.setText("Fahrtüchtig ab: N/A")
+        self.measured_bac_label.setText("Gemessener BAK: --")
+        self.measured_bac_label.setVisible(False)
+        self._measured_bac = 0.0
         
         # Tabelle leeren
         self.results_table.setRowCount(0)
@@ -1044,6 +1068,28 @@ class ResultsWidget(QWidget):
         self.validate_btn.clicked.connect(self.perform_validation)
         validate_layout.addWidget(self.validate_btn)
         
+        # Manuell neu berechnen Button
+        self.recalculate_btn = QPushButton("🔄 Manuell neu berechnen")
+        self.recalculate_btn.setFont(QFont("Inter", 12, QFont.Weight.Bold))
+        self.recalculate_btn.setMinimumHeight(40)
+        self.recalculate_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2196F3;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                padding: 10px 20px;
+            }
+            QPushButton:hover {
+                background-color: #1976D2;
+            }
+            QPushButton:pressed {
+                background-color: #1565C0;
+            }
+        """)
+        self.recalculate_btn.clicked.connect(self.manual_recalculate)
+        validate_layout.addWidget(self.recalculate_btn)
+        
         validate_layout.addStretch()
         input_layout.addLayout(validate_layout)
         
@@ -1059,6 +1105,25 @@ class ResultsWidget(QWidget):
         
         # Verhältnis: 30% Eingabe, 70% Ergebnisse
         input_group.setMaximumHeight(200)
+
+    def set_validation_data(self, measurement_date=None, measurement_time=None, measured_bac=None):
+        """Setzt die Daten für die forensische Validierung"""
+        if measurement_date:
+            self.measurement_date.setDate(measurement_date)
+        if measurement_time:
+            self.measurement_time.setTime(measurement_time)
+        if measured_bac is not None:
+            self.measured_bac.setValue(measured_bac)
+
+    def manual_recalculate(self):
+        """Führt eine manuelle Neuberechnung mit aktuellen Daten durch"""
+        # Signal an MainWindow senden für Neuberechnung
+        self.validation_requested.emit({
+            'action': 'recalculate',
+            'measurement_date': self.measurement_date.date(),
+            'measurement_time': self.measurement_time.time(),
+            'measured_bac': self.measured_bac.value()
+        })
 
     def perform_validation(self):
         """Führt die forensische Validierung durch"""

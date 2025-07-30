@@ -356,6 +356,51 @@ Individualisierte Eliminationsrate für spezielle Fälle:<br>
         
         layout.addWidget(elimination_group)
         
+        # Gemessener BAK-Wert
+        measured_bac_group = QGroupBox("Gemessener BAK-Wert")
+        measured_bac_group.setFont(QFont("Inter", 14, QFont.Weight.Bold))
+        measured_bac_layout = QVBoxLayout(measured_bac_group)
+        
+        # BAK-Eingabe
+        bac_input_layout = QHBoxLayout()
+        bac_input_label = QLabel("Gemessener BAK:")
+        bac_input_label.setFont(QFont("Inter", 12))
+        bac_input_label.setToolTip("""
+<b>Gemessener BAK-Wert für Vergleich</b><br><br>
+Geben Sie hier den tatsächlich gemessenen Blutalkoholgehalt ein, um ihn mit den berechneten Werten zu vergleichen:<br>
+• <b>Format:</b> Dezimalzahl in Promille (z.B. 1.25)<br>
+• <b>Vergleich:</b> Wird in den Ergebnissen mit berechneten Werten verglichen<br>
+• <b>Quelle:</b> Aus Protokoll-Analyse oder manuelle Eingabe<br><br>
+<b>Beispiele:</b><br>
+• 0.85 (0.85 Promille)<br>
+• 2.12 (2.12 Promille)<br>
+• 0.00 (kein gemessener Wert)<br><br>
+<b>Hinweis:</b> Wird automatisch aus Protokoll-Analysen übernommen!
+        """)
+        
+        from PyQt6.QtWidgets import QDoubleSpinBox
+        self.measured_bac_spinbox = QDoubleSpinBox()
+        self.measured_bac_spinbox.setFont(QFont("Inter", 12))
+        self.measured_bac_spinbox.setRange(0.0, 5.0)  # Realistischer Bereich
+        self.measured_bac_spinbox.setSingleStep(0.01)  # 0.01 Promille Schritte
+        self.measured_bac_spinbox.setDecimals(2)  # 2 Dezimalstellen
+        self.measured_bac_spinbox.setValue(0.0)
+        self.measured_bac_spinbox.setSuffix(" ‰")
+        self.measured_bac_spinbox.setToolTip("""
+<b>Gemessener BAK-Wert</b><br><br>
+Geben Sie den tatsächlich gemessenen Blutalkoholgehalt ein.<br>
+Bereich: 0.00 bis 5.00 Promille<br>
+Schritte: 0.01 Promille<br><br>
+<b>Automatische Übernahme:</b> Wird aus Protokoll-Analysen automatisch übernommen.
+        """)
+        
+        bac_input_layout.addWidget(bac_input_label)
+        bac_input_layout.addWidget(self.measured_bac_spinbox)
+        bac_input_layout.addStretch()
+        measured_bac_layout.addLayout(bac_input_layout)
+        
+        layout.addWidget(measured_bac_group)
+        
         # Weitere Einstellungen
         additional_group = QGroupBox("Weitere Einstellungen")
         additional_group.setFont(QFont("Inter", 14, QFont.Weight.Bold))
@@ -443,6 +488,9 @@ Nahrung beeinflusst massiv die Alkoholresorption:<br>
         
         # Weitere Einstellungen
         self.meal_combo.currentTextChanged.connect(self.data_changed.emit)
+        
+        # Gemessener BAK-Wert
+        self.measured_bac_spinbox.valueChanged.connect(self.data_changed.emit)
     
     def set_default_values(self):
         """Setzt realistische Startwerte für eine typische Berechnung"""
@@ -501,7 +549,8 @@ Nahrung beeinflusst massiv die Alkoholresorption:<br>
             'resorption_deficit': self.resorption_deficit_slider.value(),
             'elimination_rate': self.elimination_rate_combo.currentText(),
             'manual_elimination_rate': self.manual_elimination_slider.value() / 100.0,
-            'meal_status': self.meal_combo.currentText()
+            'meal_status': self.meal_combo.currentText(),
+            'measured_bac': self.measured_bac_spinbox.value()
         }
     
     def set_settings_data(self, data: Dict):
@@ -535,6 +584,9 @@ Nahrung beeinflusst massiv die Alkoholresorption:<br>
         
         if 'meal_status' in data:
             self.meal_combo.setCurrentText(data['meal_status'])
+        
+        if 'measured_bac' in data:
+            self.measured_bac_spinbox.setValue(data['measured_bac'])
         
         # Labels aktualisieren
         self.update_resorption_deficit_label()

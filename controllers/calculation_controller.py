@@ -147,10 +147,12 @@ class CalculationController(QObject):
             global_elimination_rate = 0.15  # Standard
         
         # Settings-Objekt erstellen
+        measured_bac = self.settings_data.get('measured_bac', 0.0)
         settings = CalculationSettings(
             models=selected_models,
             resorption_mode=resorption_mode,
-            elimination_rate=global_elimination_rate
+            elimination_rate=global_elimination_rate,
+            measured_bac=measured_bac
         )
         
         # Für jedes ausgewählte Modell berechnen
@@ -427,9 +429,13 @@ class CalculationController(QObject):
                 'resorption_duration': contrib['resorption_hours']
             })
         
+        # Gemessenen BAK-Wert aus Settings holen
+        measured_bac = self.settings_data.get('measured_bac', 0.0)
+        
         return {
             'peak_bac': round(peak_bac, 3),
             'current_bac': round(current_bac, 3),
+            'measured_bac': measured_bac,  # Gemessener BAK-Wert für Vergleich
             'bac_calculation_time': target_time,  # Zeitpunkt der BAK-Berechnung
             'timing_description': timing_description,  # Beschreibung des Messzeitpunkts
             'timing_mode': timing_mode,  # Gewählter Modus
@@ -452,7 +458,8 @@ class CalculationController(QObject):
                 'individual_peaks': f"{len(drinks)} Einzelgetränke mit separaten Resorptionskurven",
                 'körperfett_korrektur': f"Körperfett-Faktor = {round(1.0 - (person.body_fat - 20) * 0.01, 3)}",
                 'messzeitpunkt': timing_description,  # Dokumentation des Messzeitpunkts
-                'elimination_prinzip': f"GLOBALE Elimination: {global_elimination_rate:.3f} ‰/h auf Gesamt-BAK (nicht pro Getränk)"
+                'elimination_prinzip': f"GLOBALE Elimination: {global_elimination_rate:.3f} ‰/h auf Gesamt-BAK (nicht pro Getränk)",
+                'gemessener_bak': f"Gemessener BAK: {measured_bac:.3f} ‰" if measured_bac > 0 else "Kein gemessener BAK verfügbar"
             }
         }
 

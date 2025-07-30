@@ -51,6 +51,7 @@ class CalculationSettings:
     resorption_mode: ResorptionMode
     elimination_rate: float  # in ‰/h
     tolerance_factor: float = 1.0
+    measured_bac: float = 0.0  # Gemessener BAK-Wert für Vergleich
 
 @dataclass
 class BACResult:

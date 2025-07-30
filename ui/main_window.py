@@ -9,6 +9,8 @@ from ui.components.person_widget import PersonDataWidget
 from ui.components.drinks_widget import DrinksWidget
 from ui.components.results_widget import ResultsWidget
 from ui.components.calculation_settings_widget import CalculationSettingsWidget
+from ui.components.protocol_analysis_widget import ProtocolAnalysisWidget
+from ui.components.settings_dialog import SettingsDialog
 from controllers.calculation_controller import CalculationController
 from utils.export_manager import ExportManager
 from ui.styles.theme_manager import theme_manager, Theme, FontManager
@@ -194,6 +196,13 @@ class MainWindow(QMainWindow):
         
         file_menu.addSeparator()
         
+        settings_action = QAction('Einstellungen', self)
+        settings_action.setShortcut('Ctrl+,')
+        settings_action.triggered.connect(self.show_settings)
+        file_menu.addAction(settings_action)
+        
+        file_menu.addSeparator()
+        
         exit_action = QAction('Beenden', self)
         exit_action.setShortcut('Ctrl+Q')
         exit_action.triggered.connect(self.close)
@@ -269,6 +278,10 @@ class MainWindow(QMainWindow):
         # Eingabe-Tab (Split-Layout)
         self.create_input_tab()
         
+        # Protokoll-Analyse-Tab
+        self.protocol_analysis_widget = ProtocolAnalysisWidget()
+        self.tab_widget.addTab(self.protocol_analysis_widget, "🔍 Explorations-Eingabe")
+        
         # Ergebnisse-Tab
         self.results_widget = ResultsWidget()
         self.tab_widget.addTab(self.results_widget, "📊 Ergebnisse")
@@ -339,6 +352,10 @@ class MainWindow(QMainWindow):
         
         # Results Widget Export Requests
         self.results_widget.export_requested.connect(self.on_export_requested)
+        self.results_widget.validation_requested.connect(self.on_validation_requested)
+        
+        # Protocol Analysis Widget
+        self.protocol_analysis_widget.protocol_analyzed.connect(self.on_protocol_analyzed)
         
         # Theme Manager
         theme_manager.theme_changed.connect(self.on_theme_changed)
@@ -384,6 +401,10 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Berechnung abgeschlossen", 3000)
         QApplication.restoreOverrideCursor()
         
+        # Gemessenen BAK-Wert aus Settings holen
+        settings_data = self.settings_widget.get_settings_data()
+        measured_bac = settings_data.get('measured_bac', 0.0)
+        
         # Ergebnisse an Results Widget weiterleiten
         self.results_widget.update_results(results)
         
@@ -421,6 +442,47 @@ class MainWindow(QMainWindow):
         """Reagiert auf Theme-Änderung"""
         self.statusBar().showMessage(f"Theme geändert: {theme_name}", 2000)
     
+    @pyqtSlot(dict)
+    def on_validation_requested(self, data):
+        """Reagiert auf Validierungsanfragen vom Results Widget"""
+        action = data.get('action')
+        
+        if action == 'recalculate':
+            # Manuelle Neuberechnung mit aktuellen Validierungsdaten
+            from PyQt6.QtCore import QDate, QTime
+            from datetime import datetime, date, time
+            
+            # Validierungsdaten in Settings übertragen
+            settings_data = self.settings_widget.get_settings_data()
+            
+            # Gemessenen BAK-Wert setzen
+            measured_bac = data.get('measured_bac', 0.0)
+            if measured_bac > 0:
+                settings_data['measured_bac'] = measured_bac
+            
+            # Messzeitpunkt setzen
+            measurement_date = data.get('measurement_date')
+            measurement_time = data.get('measurement_time')
+            
+            if measurement_date and measurement_time:
+                # QDate/QTime zu datetime konvertieren
+                date_obj = date(year=measurement_date.year(), 
+                              month=measurement_date.month(), 
+                              day=measurement_date.day())
+                time_obj = time(hour=measurement_time.hour(), 
+                              minute=measurement_time.minute())
+                custom_datetime = datetime.combine(date_obj, time_obj)
+                
+                settings_data['timing_mode'] = 'Benutzerdefiniert'
+                settings_data['custom_datetime'] = custom_datetime.strftime('%d.%m.%Y %H:%M')
+            
+            # Settings aktualisieren und Neuberechnung auslösen
+            self.settings_widget.set_settings_data(settings_data)
+            self.on_settings_data_changed()
+            self.calculation_controller.force_calculation()
+            
+            self.statusBar().showMessage("Manuelle Neuberechnung gestartet...", 3000)
+
     @pyqtSlot(str)
     def on_export_requested(self, export_type):
         """Reagiert auf Export-Anfrage vom Results Widget"""
@@ -449,6 +511,149 @@ class MainWindow(QMainWindow):
             self.export_manager.export_to_csv(data)
         elif export_type == 'excel':
             self.export_manager.export_to_excel(data)
+    
+    @pyqtSlot(object)
+    def on_protocol_analyzed(self, protocol):
+        """Überträgt analysierte Protokoll-Daten in die Getränke-Tabelle"""
+        try:
+            from datetime import timedelta
+            
+            # Getränke-Daten konvertieren
+            drinks_data = []
+            
+            for drink in protocol.drinks:
+                # Prüfe auf Zeitverteilung
+                if 'distribution_start' in drink and 'distribution_end' in drink:
+                    # Zeitverteilung über einen Zeitraum
+                    start_time = drink['distribution_start']
+                    end_time = drink['distribution_end']
+                    total_seconds = (end_time - start_time).total_seconds()
+                    
+                    # Getränke gleichmäßig über den Zeitraum verteilen
+                    for i in range(drink['quantity']):
+                        if drink['quantity'] == 1:
+                            # Ein Getränk: zur Mitte des Zeitraums
+                            drink_time = start_time + timedelta(seconds=total_seconds / 2)
+                        else:
+                            # Mehrere Getränke: gleichmäßig verteilen
+                            interval_seconds = total_seconds / (drink['quantity'] - 1) if drink['quantity'] > 1 else 0
+                            drink_time = start_time + timedelta(seconds=i * interval_seconds)
+                        
+                        drinks_data.append({
+                            'name': drink['name'],
+                            'volume': drink['volume'],
+                            'alcohol_content': drink['alcohol_content'],
+                            'quantity': 1,  # Einzelne Getränke
+                            'time': drink_time
+                        })
+                else:
+                    # Verwende die spezifische Trinkzeit, falls verfügbar
+                    if 'time' in drink and drink['time']:
+                        drink_time = drink['time']
+                    else:
+                        # Fallback: Zeitverteilung über den Konsumzeitraum
+                        start_time = protocol.start_time
+                        end_time = protocol.end_time
+                        
+                        if len(protocol.drinks) == 1:
+                            # Ein Getränk: zur Startzeit
+                            drink_time = start_time
+                        else:
+                            # Mehrere Getränke: gleichmäßig verteilen
+                            total_seconds = (end_time - start_time).total_seconds()
+                            interval_seconds = total_seconds / (len(protocol.drinks) - 1) if len(protocol.drinks) > 1 else 0
+                            drink_index = len(drinks_data)
+                            drink_time = start_time + timedelta(seconds=drink_index * interval_seconds)
+                    
+                    # Einzelne Getränke erstellen (nicht gruppiert)
+                    for i in range(drink['quantity']):
+                        drinks_data.append({
+                            'name': drink['name'],
+                            'volume': drink['volume'],
+                            'alcohol_content': drink['alcohol_content'],
+                            'quantity': 1,  # Einzelne Getränke
+                            'time': drink_time
+                        })
+            
+            # In DrinksWidget übertragen
+            self.drinks_widget.set_drinks_data(drinks_data)
+            
+            # Controller über neue Getränke-Daten informieren
+            self.on_drinks_data_changed()
+            
+            # Gemessenen BAK-Wert und Messzeitpunkt in Settings setzen
+            settings_updated = False
+            current_settings = self.settings_widget.get_settings_data()
+            
+            # Gemessenen BAK-Wert setzen
+            if hasattr(protocol, 'measured_bac') and protocol.measured_bac > 0:
+                current_settings['measured_bac'] = protocol.measured_bac
+                settings_updated = True
+            
+            # Messzeitpunkt setzen (falls verfügbar)
+            if hasattr(protocol, 'blood_test_time') and protocol.blood_test_time:
+                # Verwende das Datum aus dem Protokoll, aber die aktuelle Zeit für die Stunde/Minute
+                from datetime import datetime
+                current_date = datetime.now().date()
+                blood_test_time = protocol.blood_test_time
+                
+                # Kombiniere aktuelles Datum mit Protokoll-Zeit
+                custom_datetime = datetime.combine(current_date, blood_test_time.time())
+                
+                # Konvertiere zu benutzerdefiniertem Zeitpunkt
+                current_settings['timing_mode'] = 'Benutzerdefiniert'
+                current_settings['custom_datetime'] = custom_datetime.strftime('%d.%m.%Y %H:%M')
+                settings_updated = True
+            
+            # Settings aktualisieren und an Controller übertragen
+            if settings_updated:
+                self.settings_widget.set_settings_data(current_settings)
+                self.on_settings_data_changed()
+            
+            # Neue Berechnung auslösen (immer, da Getränke-Daten geändert wurden)
+            self.calculation_controller.force_calculation()
+            
+            # Validierungsdaten setzen (falls verfügbar)
+            if hasattr(protocol, 'measured_bac') and protocol.measured_bac > 0:
+                from PyQt6.QtCore import QDate, QTime
+                
+                # Datum und Zeit für Validierung setzen
+                if hasattr(protocol, 'blood_test_time') and protocol.blood_test_time:
+                    # Verwende das Datum aus dem Protokoll
+                    protocol_date = protocol.blood_test_time.date()
+                    protocol_time = protocol.blood_test_time.time()
+                    
+                    qdate = QDate(protocol_date.year, protocol_date.month, protocol_date.day)
+                    qtime = QTime(protocol_time.hour, protocol_time.minute)
+                else:
+                    # Fallback auf aktuelles Datum/Zeit
+                    from datetime import datetime
+                    now = datetime.now()
+                    qdate = QDate(now.year, now.month, now.day)
+                    qtime = QTime(now.hour, now.minute)
+                
+                # Validierungsfelder befüllen
+                self.results_widget.set_validation_data(
+                    measurement_date=qdate,
+                    measurement_time=qtime,
+                    measured_bac=protocol.measured_bac
+                )
+            
+            # Status-Update mit Details
+            status_msg = f"Protokoll analysiert: {len(drinks_data)} Getränke übertragen"
+            if hasattr(protocol, 'measured_bac') and protocol.measured_bac > 0:
+                status_msg += f", gemessener BAK: {protocol.measured_bac:.2f}‰"
+            if hasattr(protocol, 'blood_test_time') and protocol.blood_test_time:
+                status_msg += f", Messzeit: {protocol.blood_test_time.strftime('%H:%M')}"
+            
+            self.statusBar().showMessage(status_msg, 5000)
+            
+            # Tab wechseln zur Eingabe
+            self.tab_widget.setCurrentIndex(0)  # Eingabe-Tab
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Übertragungsfehler", 
+                               f"Fehler beim Übertragen der analysierten Daten: {str(e)}")
     
     def update_current_bac_display(self, results):
         """Aktualisiert die aktuelle BAK-Anzeige"""
@@ -562,6 +767,25 @@ class MainWindow(QMainWindow):
                          <p><b>Disclaimer:</b> Nur für Informationszwecke!</p>
                          """)
     
+    def show_settings(self):
+        """Zeigt den Einstellungs-Dialog an"""
+        dialog = SettingsDialog(self)
+        dialog.settings_changed.connect(self.on_settings_changed)
+        dialog.exec()
+    
+    def on_settings_changed(self, settings: dict):
+        """Behandelt Änderungen der API-Einstellungen"""
+        # Aktualisiere den UniversalAnalyzer im ProtocolAnalysisWidget
+        if hasattr(self, 'protocol_analysis_widget'):
+            # Erstelle einen neuen UniversalAnalyzer mit den aktualisierten Einstellungen
+            from utils.universal_analyzer import UniversalAnalyzer
+            analyzer = UniversalAnalyzer()
+            analyzer.update_settings(settings)
+            
+            # Zeige Status-Update
+            provider = settings.get('provider', 'Unbekannt')
+            self.statusBar().showMessage(f"API-Einstellungen aktualisiert: {provider}", 3000)
+    
     def show_help(self):
         """Zeigt Hilfe-Dialog"""
         QMessageBox.information(self, "Hilfe",
@@ -582,7 +806,15 @@ class MainWindow(QMainWindow):
                               <li>Strg+N: Neue Berechnung</li>
                               <li>Strg+S: Speichern</li>
                               <li>Strg+O: Laden</li>
+                              <li>Strg+,: Einstellungen</li>
                               <li>F1: Diese Hilfe</li>
+                              </ul>
+                              
+                              <p><b>KI-Analyse:</b></p>
+                              <ul>
+                              <li>Verwenden Sie den "Explorations-Eingabe"-Tab für automatische Analyse</li>
+                              <li>Konfigurieren Sie API-Einstellungen unter Datei → Einstellungen</li>
+                              <li>Unterstützt Ollama (lokal) und OpenAI (Cloud)</li>
                               </ul>
                               """)
     
