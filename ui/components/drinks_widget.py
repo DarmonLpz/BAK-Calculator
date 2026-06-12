@@ -6,6 +6,7 @@ from PyQt6.QtCore import pyqtSignal, QTime, QDate, Qt
 from PyQt6.QtGui import QFont
 from datetime import datetime, time, date, timedelta
 from typing import List, Dict
+from models import alcohol_grams, ETHANOL_DENSITY
 
 class AddDrinkDialog(QDialog):
     """Dialog zum Hinzufügen von Getränken"""
@@ -623,14 +624,11 @@ class DrinksWidget(QWidget):
             self.drinks_table.setItem(row, 4, time_item)
             
             # Alkohol in Gramm (nicht editierbar - automatisch berechnet)
-            try:
-                alcohol_grams = float(drink['volume']) * float(drink['alcohol_content']) / 100 * 0.789
-            except Exception:
-                alcohol_grams = 0.0
-            alcohol_item = QTableWidgetItem(f"{alcohol_grams:.1f} g")
+            grams = alcohol_grams(drink['volume'], drink['alcohol_content'])
+            alcohol_item = QTableWidgetItem(f"{grams:.1f} g")
             alcohol_item.setFlags(alcohol_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             alcohol_item.setBackground(Qt.GlobalColor.lightGray)
-            alcohol_item.setToolTip("Automatisch berechnet: Volumen × Alkohol% × 0.789")
+            alcohol_item.setToolTip(f"Automatisch berechnet: Volumen × Vol.-% × {ETHANOL_DENSITY} g/ml")
             self.drinks_table.setItem(row, 5, alcohol_item)
         
         # Signal wieder connecten
@@ -647,7 +645,7 @@ class DrinksWidget(QWidget):
         
         # Gesamtalkohol berechnen
         total_alcohol = sum(
-            drink['volume'] * (drink['alcohol_content'] / 100) * 0.8
+            alcohol_grams(drink['volume'], drink['alcohol_content'])
             for drink in self.drinks_data
         )
         

@@ -9,6 +9,7 @@ from ui.components.person_widget import PersonDataWidget
 from ui.components.drinks_widget import DrinksWidget
 from ui.components.results_widget import ResultsWidget
 from ui.components.calculation_settings_widget import CalculationSettingsWidget
+from ui.components.ai_analysis_widget import AiAnalysisWidget
 from controllers.calculation_controller import CalculationController
 from utils.export_manager import ExportManager
 from ui.styles.theme_manager import theme_manager, Theme, FontManager
@@ -262,14 +263,18 @@ class MainWindow(QMainWindow):
         # Tab-Widget
         self.tab_widget = QTabWidget()
         self.tab_widget.setFont(FontManager.get_font('subtitle2'))
-        
+
+        # KI-Analyse-Tab (Freitext -> automatische Übernahme)
+        self.ai_widget = AiAnalysisWidget()
+        self.tab_widget.addTab(self.ai_widget, "🤖 KI-Analyse")
+
         # Eingabe-Tab (Split-Layout)
         self.create_input_tab()
-        
+
         # Ergebnisse-Tab
         self.results_widget = ResultsWidget()
         self.tab_widget.addTab(self.results_widget, "📊 Ergebnisse")
-        
+
         parent_layout.addWidget(self.tab_widget)
     
     def create_input_tab(self):
@@ -323,6 +328,9 @@ class MainWindow(QMainWindow):
         
         # Settings Widget
         self.settings_widget.data_changed.connect(self.on_settings_data_changed)
+
+        # KI-Analyse Widget
+        self.ai_widget.extraction_ready.connect(self.on_ai_extraction)
         
         # Calculation Controller
         self.calculation_controller.calculation_started.connect(self.on_calculation_started)
@@ -366,6 +374,36 @@ class MainWindow(QMainWindow):
         settings_data = self.settings_widget.get_settings_data()
         self.calculation_controller.set_calculation_settings(settings_data)
     
+    @pyqtSlot(dict)
+    def on_ai_extraction(self, result):
+        """Übernimmt das Ergebnis der KI-Analyse in den Rechner."""
+        person = result.get('person') or {}
+        drinks = result.get('drinks') or []
+        measurement = result.get('measurement') or {}
+
+        if person:
+            self.person_widget.set_person_data(person)
+        if drinks:
+            self.drinks_widget.set_drinks_data(drinks)
+
+        # Controller mit den neuen Daten versorgen und sofort rechnen
+        self.on_person_data_changed()
+        self.on_settings_data_changed()
+        self.on_drinks_data_changed()
+        self.calculation_controller.force_calculation()
+
+        # Gemessenen Wert übernehmen und Plausibilität prüfen
+        if measurement.get('bac') is not None:
+            self.results_widget.set_measurement(measurement)
+            self.results_widget.perform_validation()
+            # Direkt zum Validierungs-Ergebnis (BAK-Controller)
+            self.tab_widget.setCurrentWidget(self.results_widget)
+            self.results_widget.tabs.setCurrentIndex(2)
+        else:
+            self.tab_widget.setCurrentWidget(self.results_widget)
+
+        self.statusBar().showMessage("KI-Analyse übernommen", 4000)
+
     @pyqtSlot()
     def on_calculation_started(self):
         """Reagiert auf Beginn einer Berechnung"""
@@ -554,24 +592,4 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         """Behandelt das Schließen des Fensters"""
         self.save_user_preferences()
-        event.accept()
-    
-    def update_bac_plot(self):
-        """Aktualisiert die BAK-Kurve"""
-        drinks_data = self.drinks_widget.get_drinks_data()
-        if not drinks_data:
-            return
-        
-        # Hole Personendaten
-        weight = self.person_widget.get_weight()
-        gender = self.person_widget.get_gender()
-        height = self.person_widget.get_height()
-        age = self.person_widget.get_age()
-        
-        # Berechne BAK-Kurve
-        times, bac_values, drink_times = self.calculation_controller.calculate_bac_curve(
-            drinks_data, weight, gender, height, age
-        )
-        
-        # Zeichne Kurve
-        self.bac_plot_widget.plot_bac_curve(times, bac_values, drink_times) 
+        event.accept() 

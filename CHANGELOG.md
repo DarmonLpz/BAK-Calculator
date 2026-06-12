@@ -1,5 +1,56 @@
 # BAK-Kalkulator - Änderungsprotokoll
 
+## Version 2.2.0 - KI-Analyse von Explorationstexten (2026-06-12)
+
+### 🤖 Neue Funktion: KI-gestützte Textanalyse
+- **Neuer Tab „KI-Analyse"**: Freitext (z. B. Exploration zum Trinkverhalten
+  am Delikttag) einfügen – Claude (Anthropic API, günstiges Modell
+  Claude Haiku 4.5) filtert daraus strukturiert heraus:
+  - alle konsumierten Getränke (Art, Menge, Alkoholgehalt, Uhrzeit)
+  - Personendaten (Geschlecht, Alter, Größe, Gewicht), sofern genannt
+  - den gemessenen Blutalkoholwert samt Entnahmezeitpunkt und Methode
+- Die erkannten Angaben werden **automatisch** in den Rechner übernommen, die
+  Berechnung gestartet und die **Plausibilität gegen den Messwert** geprüft.
+- Robuste Erkennung deutscher Maße (Maß, Halbe, Kurzer …) und Standard-
+  Alkoholgehalte; getroffene Annahmen werden transparent ausgewiesen.
+- Umsetzung über das offizielle Anthropic-SDK mit **Structured Outputs**;
+  API-Schlüssel über `ANTHROPIC_API_KEY`. Ohne Schlüssel/Paket bleibt der
+  Rechner voll funktionsfähig (Funktion deaktiviert mit Hinweis).
+
+---
+
+## Version 2.1.0 - Komplettüberarbeitung: korrekte Berechnung & verständliche Auswertung (2026-06-12)
+
+### 🐞 Behobene kritische Fehler
+- **Echte Berechnung statt Mock**: Die GUI nutzte zuvor eine Platzhalter-
+  ("Mock"-)Berechnung; der vorhandene Rechenkern blieb ungenutzt. Es gibt
+  jetzt EINE saubere Berechnungs-Engine (`calculations.py`).
+- **Einstellungen wirken endlich**: Eliminationsrate, Resorptionsdefizit,
+  Resorptionszeit/Mahlzeit-Status und manuelle Rate beeinflussen das Ergebnis
+  jetzt tatsächlich (vorher wirkungslos).
+- **Einheitliche Alkohol-Dichte**: Überall wird konsistent `0,8 g/ml`
+  verwendet (vorher gemischt 0,8 / 0,789 → Anzeige ≠ Berechnung).
+- **Korrekte Grenzwert-Zeiten**: getrennte, korrekt benannte Werte für
+  0,5 ‰, 0,3 ‰ und ≈0,0 ‰ (vorher irreführend in `time_to_03` vermischt).
+- **Toter/kaputter Code entfernt**: doppelter `BACCalculator` (`logic.py`),
+  defektes `bac_plot_widget.py` und nicht funktionsfähige Methoden gelöscht.
+- **Watson & Seidl wissenschaftlich korrekt**: Watson mit Blutwasser-Faktor,
+  Seidl mit der originalen Seidl-Regression (2000).
+- **Excel-Export**: `openpyxl` zu den Abhängigkeiten ergänzt (sonst Absturz).
+
+### 📊 Verständlichere Auswertung
+- Neue Klartext-Box **„Was bedeutet das?"** mit Ampel-Status und Erklärung.
+- **Analyse-Texte** komplett überarbeitet: zuerst eine verständliche
+  Zusammenfassung, dann „Wie wird gerechnet?" in einfachen Worten, danach die
+  wissenschaftlichen Details und Quellen.
+
+### 📄 Schicker PDF-Bericht
+- Farbige Kopfzeile, Ergebnis-Box mit Ampel-Status und Klartext-Kennzahlen,
+  übersichtliche Zebra-Tabellen, ansprechendes Verlaufsdiagramm mit
+  Grenzwertlinien und rechtlicher Hinweis.
+
+---
+
 ## Version 1.3.0 - Forensisches Validierungsmodul (2024-12-XX)
 
 ### 🔬 Neue Funktionen
