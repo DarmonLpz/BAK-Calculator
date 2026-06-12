@@ -6,6 +6,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QDate, QTime
 from PyQt6.QtGui import QFont, QPalette
 from typing import Dict, List, Any
 from datetime import datetime, date, time
+from models import ETHANOL_DENSITY
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -324,13 +325,28 @@ class ResultsWidget(QWidget):
         self.time_to_drive_label.setFont(QFont("Inter", 12))
         
         summary_layout.addWidget(self.peak_bac_label)
-        summary_layout.addWidget(self.time_to_sober_label)
         summary_layout.addWidget(self.time_to_drive_label)
-        
+        summary_layout.addWidget(self.time_to_sober_label)
+
         layout.addWidget(summary_group)
-        
+
+        # Klartext-Erklärung: "Was bedeutet das?"
+        explain_group = QGroupBox("Was bedeutet das?")
+        explain_group.setFont(QFont("Inter", 14, QFont.Weight.Bold))
+        explain_layout = QVBoxLayout(explain_group)
+
+        self.interpretation_label = QLabel(
+            "Geben Sie Personendaten und Getränke ein, um eine verständliche "
+            "Auswertung zu erhalten.")
+        self.interpretation_label.setFont(QFont("Inter", 12))
+        self.interpretation_label.setWordWrap(True)
+        self.interpretation_label.setTextFormat(Qt.TextFormat.RichText)
+        explain_layout.addWidget(self.interpretation_label)
+
+        layout.addWidget(explain_group)
+
         layout.addStretch()
-        
+
         return widget
     
     def create_results_table(self):
@@ -429,9 +445,69 @@ class ResultsWidget(QWidget):
         
         # Chart aktualisieren
         self.chart_widget.update_chart(results)
-        
+
         # Ausführliche Berechnung aktualisieren
         self.update_detail_tab(results)
+
+        # Klartext-Erklärung aktualisieren
+        self.update_interpretation(results, avg_current_bac, status_text)
+
+    def update_interpretation(self, results, avg_current_bac, status_text):
+        """Erstellt eine verständliche Klartext-Auswertung der Ergebnisse."""
+        # Spannweite der Max-Werte über alle Modelle
+        peaks = [r.get('peak_bac', 0.0) for r in results.values()]
+        max_peak = max(peaks) if peaks else 0.0
+        min_peak = min(peaks) if peaks else 0.0
+
+        latest_05 = max([r.get('time_to_05') for r in results.values()
+                         if r.get('time_to_05')], default=None)
+        latest_00 = max([r.get('time_to_00') for r in results.values()
+                         if r.get('time_to_00')], default=None)
+        total_g = next(iter(results.values())).get('alcohol_grams', 0)
+        n_drinks = next(iter(results.values())).get('total_drinks', 0)
+
+        # Ampel-Bewertung der aktuellen Lage
+        if avg_current_bac == 0.0:
+            ampel = "🟢"
+            kern = "Sie sind aktuell rechnerisch nüchtern."
+        elif avg_current_bac < 0.3:
+            ampel = "🟡"
+            kern = ("Geringe Alkoholisierung. Bereits ab 0,3 ‰ kann bei "
+                    "Ausfallerscheinungen eine Straftat vorliegen.")
+        elif avg_current_bac < 0.5:
+            ampel = "🟠"
+            kern = ("Sie liegen unter 0,5 ‰, aber Restalkohol ist vorhanden – "
+                    "ab 0,3 ‰ drohen bei Fahrfehlern strafrechtliche Folgen.")
+        elif avg_current_bac < 1.1:
+            ampel = "🔴"
+            kern = ("Über 0,5 ‰: Ordnungswidrigkeit (Bußgeld, Fahrverbot, "
+                    "Punkte). Fahren ist tabu.")
+        else:
+            ampel = "🔴"
+            kern = ("Über 1,1 ‰: absolute Fahruntüchtigkeit – das ist eine "
+                    "Straftat (§ 316 StGB).")
+
+        drive_txt = (f"frühestens gegen <b>{latest_05.strftime('%H:%M')} Uhr</b>"
+                     if latest_05 else "im berechneten Zeitraum nicht sicher bestimmbar")
+        sober_txt = (f"gegen <b>{latest_00.strftime('%H:%M')} Uhr</b>"
+                     if latest_00 else "erst nach dem dargestellten Zeitraum")
+
+        html = f"""
+        <p style="font-size:13px;">{ampel} <b>{kern}</b></p>
+        <p style="font-size:12px;">
+        Sie haben <b>{n_drinks}</b> Getränk(e) mit insgesamt
+        <b>{total_g:.1f} g</b> reinem Alkohol angegeben. Die Modelle berechnen
+        einen Spitzenwert (Maximum) zwischen <b>{min_peak:.2f}</b> und
+        <b>{max_peak:.2f} ‰</b>.</p>
+        <ul style="font-size:12px;">
+          <li>Die <b>0,5-‰-Grenze</b> wird {drive_txt} unterschritten.</li>
+          <li>Praktisch <b>nüchtern</b> sind Sie voraussichtlich {sober_txt}.</li>
+        </ul>
+        <p style="font-size:11px; color:#a00;">
+        ⚠️ Es handelt sich um eine Schätzung mit ±20–30 % Unsicherheit. Sie
+        ersetzt keine Blutprobe. Fahren Sie im Zweifel <b>nicht</b>.</p>
+        """
+        self.interpretation_label.setText(html)
     
     def update_summary(self, results: Dict):
         """Aktualisiert die Zusammenfassung"""
@@ -442,25 +518,27 @@ class ResultsWidget(QWidget):
         peak_bac_values = [result.get('peak_bac', 0.0) for result in results.values() if result.get('peak_bac')]
         max_peak_bac = max(peak_bac_values) if peak_bac_values else 0.0
         
-        # Früheste Zeiten (konservativste Schätzung)
-        time_to_05_values = [result.get('time_to_03') for result in results.values() if result.get('time_to_03')]
-        time_to_00_values = [result.get('time_to_00') for result in results.values() if result.get('time_to_00')]
-        
-        earliest_05 = max(time_to_05_values) if time_to_05_values else None
-        earliest_00 = max(time_to_00_values) if time_to_00_values else None
-        
+        # Zeiten: konservativste (= späteste) Schätzung über alle Modelle
+        time_to_05_values = [r.get('time_to_05') for r in results.values() if r.get('time_to_05')]
+        time_to_00_values = [r.get('time_to_00') for r in results.values() if r.get('time_to_00')]
+
+        latest_05 = max(time_to_05_values) if time_to_05_values else None
+        latest_00 = max(time_to_00_values) if time_to_00_values else None
+
         # Labels aktualisieren
         self.peak_bac_label.setText(f"Max. BAK: {max_peak_bac:.2f} ‰")
-        
-        if earliest_05:
-            self.time_to_drive_label.setText(f"Fahrtüchtig ab: {earliest_05.strftime('%H:%M')}")
+
+        if latest_05:
+            self.time_to_drive_label.setText(
+                f"Unter 0,5 ‰ ab: {latest_05.strftime('%H:%M')} Uhr")
         else:
-            self.time_to_drive_label.setText("Fahrtüchtig ab: --")
-        
-        if earliest_00:
-            self.time_to_sober_label.setText(f"Nüchtern ab: {earliest_00.strftime('%H:%M')}")
+            self.time_to_drive_label.setText("Unter 0,5 ‰ ab: --")
+
+        if latest_00:
+            self.time_to_sober_label.setText(
+                f"Nüchtern (≈0,0 ‰) ab: {latest_00.strftime('%H:%M')} Uhr")
         else:
-            self.time_to_sober_label.setText("Nüchtern ab: --")
+            self.time_to_sober_label.setText("Nüchtern (≈0,0 ‰) ab: --")
     
     def update_results_table(self, results: Dict):
         """Aktualisiert die Ergebnisse-Tabelle"""
@@ -493,7 +571,7 @@ class ResultsWidget(QWidget):
             self.results_table.setItem(row, 2, peak_item)
             
             # Zeit bis 0.5‰
-            time_to_05 = result.get('time_to_03')
+            time_to_05 = result.get('time_to_05')
             time_05_item = QTableWidgetItem(time_to_05.strftime('%H:%M') if time_to_05 else "--")
             time_05_item.setFlags(time_05_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             time_05_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -527,8 +605,11 @@ class ResultsWidget(QWidget):
         
         # Zusammenfassung zurücksetzen
         self.peak_bac_label.setText("Max. BAK: N/A")
-        self.time_to_sober_label.setText("Nüchtern ab: N/A")
-        self.time_to_drive_label.setText("Fahrtüchtig ab: N/A")
+        self.time_to_drive_label.setText("Unter 0,5 ‰ ab: --")
+        self.time_to_sober_label.setText("Nüchtern (≈0,0 ‰) ab: --")
+        self.interpretation_label.setText(
+            "Geben Sie Personendaten und Getränke ein, um eine verständliche "
+            "Auswertung zu erhalten.")
         
         # Tabelle leeren
         self.results_table.setRowCount(0)
@@ -552,23 +633,61 @@ class ResultsWidget(QWidget):
             self.detail_text.setPlainText("Keine Berechnung möglich. Bitte geben Sie alle erforderlichen Daten ein.")
             return
         
+        # --- Werte für die verständliche Zusammenfassung sammeln ---
+        first = next(iter(results.values()))
+        total_g = first.get('alcohol_grams', 0)
+        eff_g = first.get('effective_alcohol_grams', total_g)
+        n_drinks = first.get('total_drinks', 0)
+        peaks = [r.get('peak_bac', 0.0) for r in results.values()]
+        currents = [r.get('current_bac', 0.0) for r in results.values()]
+        avg_current = sum(currents) / len(currents) if currents else 0.0
+        latest_05 = max([r.get('time_to_05') for r in results.values()
+                         if r.get('time_to_05')], default=None)
+        latest_00 = max([r.get('time_to_00') for r in results.values()
+                         if r.get('time_to_00')], default=None)
+        drive_txt = (latest_05.strftime('%H:%M') + ' Uhr') if latest_05 else 'n. b.'
+        sober_txt = (latest_00.strftime('%H:%M') + ' Uhr') if latest_00 else 'n. b.'
+        density_txt = f"{ETHANOL_DENSITY:.1f}".replace('.', ',')
+
         # HTML-formatierte ausführliche Berechnung
-        html_content = """
-        <h2>📊 Wissenschaftliche BAK-Berechnung</h2>
-        <p><i>Evidenzbasierte Pharmakodynamik und forensische Alkoholkennzeichnung nach internationalen Standards</i></p>
-        
-        <h3>📚 Wissenschaftliche Grundlagen</h3>
-        <p>Die Blutalkoholkonzentrations-Berechnung basiert auf etablierten pharmakokinetischen Modellen der forensischen Toxikologie. 
-        Alle implementierten Algorithmen entsprechen den Richtlinien der <b>International Association of Forensic Sciences (IAFS)</b> 
-        und der <b>Society of Forensic Toxicologists (SOFT)</b>.</p>
-        
-        <h4>🔬 Pharmakokinetische Grundprinzipien</h4>
+        html_content = f"""
+        <h2>📊 Auswertung Ihrer BAK-Berechnung</h2>
+        <p><i>Verständlich erklärt – mit wissenschaftlichen Hintergründen und
+        Quellenangaben.</i></p>
+
+        <div style="background-color:#E3F2FD; padding:14px; border-radius:8px;
+             border-left:5px solid #2196F3;">
+        <h3 style="margin-top:0;">🟦 Das Wichtigste auf einen Blick</h3>
         <ul>
-            <li><b>ADME-Prozess:</b> Absorption → Distribution → Metabolism → Excretion</li>
-            <li><b>Verteilungsvolumen:</b> Körperwasser-abhängig (50-70% Körpergewicht)</li>
-            <li><b>Elimination:</b> First-Order-Kinetik, 90-95% hepatisch (ADH/ALDH)</li>
-            <li><b>Linearität:</b> Michaelis-Menten-Kinetik bei hohen Konzentrationen</li>
+            <li>Eingegeben: <b>{n_drinks} Getränk(e)</b> mit zusammen
+                <b>{total_g:.1f} g</b> reinem Alkohol
+                (wirksam nach Resorptionsdefizit: <b>{eff_g:.1f} g</b>).</li>
+            <li>Höchster errechneter Wert (Maximum, je nach Modell):
+                <b>{min(peaks):.2f}–{max(peaks):.2f} ‰</b>.</li>
+            <li>Aktuell (zum Berechnungszeitpunkt): <b>{avg_current:.2f} ‰</b>
+                im Modell-Durchschnitt.</li>
+            <li>Unter die <b>0,5-‰-Grenze</b> fallen Sie etwa um
+                <b>{drive_txt}</b>, praktisch <b>nüchtern</b> um
+                <b>{sober_txt}</b>.</li>
         </ul>
+        </div>
+
+        <h3>🧪 Wie wird gerechnet? (in einfachen Worten)</h3>
+        <ol>
+            <li><b>Alkoholmenge:</b> Aus Menge, Vol.-% und der Dichte von
+                Alkohol ({density_txt} g/ml) wird das reine Gramm
+                Alkohol je Getränk bestimmt.</li>
+            <li><b>Verteilung:</b> Der Alkohol verteilt sich im Körperwasser.
+                Der „r-Faktor" gibt an, in welchem Anteil des Körpers er sich
+                löst (Männer ~0,68, Frauen ~0,55).</li>
+            <li><b>Resorption:</b> Nach dem Trinken steigt der Spiegel über die
+                Resorptionszeit bis zum Höchstwert (Peak) an.</li>
+            <li><b>Abbau:</b> Die Leber baut Alkohol gleichmäßig ab
+                (~0,1–0,2 ‰ pro Stunde). Daraus ergibt sich die abfallende
+                Kurve.</li>
+        </ol>
+        <p style="font-size:12px; color:#555;">Grundformel nach Widmark:
+        <code>BAK (‰) = Alkohol (g) / (Körpergewicht (kg) × r) − Abbau</code></p>
         """
         
         for model, result in results.items():
@@ -645,11 +764,12 @@ class ResultsWidget(QWidget):
             """
             
             parameters = [
-                ('Alkoholmenge', f"{result.get('alcohol_grams', 0):.2f}", 'g C₂H₅OH', 'Gravimetrische Berechnung: V × ρ × α (OIML)'),
-                ('Körpergewicht', f"{result.get('person_weight', 0)}", 'kg', 'Anthropometrische Standardmessung'),
-                ('r-Faktor', f"{result.get('r_factor', 0):.3f}", 'L/kg', 'Geschlechtsspezifisch: ♂ 0.68±0.05, ♀ 0.55±0.05 (Gullberg & Jones, 1994)'),
-                ('Körperfett-Korrektur', f"{result.get('body_fat_factor', 1.0):.3f}", 'dimensionslos', 'Deurenberg-Korrektur für Magermasse'),
-                ('Eliminationsrate', f"{result.get('elimination_rate', 0.15):.3f}", '‰/h', 'Hepatische ADH/ALDH-Aktivität (Jones & Sternebring, 1992)')
+                ('Alkoholmenge (gesamt)', f"{result.get('alcohol_grams', 0):.1f}", 'g', 'Volumen × Vol.-% × Dichte (OIML)'),
+                ('Wirksame Menge', f"{result.get('effective_alcohol_grams', 0):.1f}", 'g', f"nach {result.get('resorption_deficit', 0):.0f}% Resorptionsdefizit"),
+                ('Körpergewicht', f"{result.get('person_weight', 0)}", 'kg', 'Eingabewert'),
+                ('r-Faktor', f"{result.get('r_factor', 0):.3f}", 'L/kg', '♂ ~0.68, ♀ ~0.55 (Gullberg & Jones, 1994)'),
+                ('Resorptionszeit', f"{result.get('absorption_minutes', 0)}", 'min', 'Zeit bis zum Höchstwert (abhängig von Mahlzeit)'),
+                ('Eliminationsrate', f"{result.get('elimination_rate', 0.15):.3f}", '‰/h', 'Leberabbau (Jones & Sternebring, 1992)')
             ]
             
             for param, value, unit, basis in parameters:
@@ -675,11 +795,10 @@ class ResultsWidget(QWidget):
                 """
                 
                 steps = [
-                    ('Alkoholmengen-Bestimmung', 'Σ(Volumen_i × Alkoholgrad_i × 0.789)', 'Volumetrische Summation aller Getränke'),
-                    ('Verteilungsvolumen', calculation_details.get('zwischenschritt_1', ''), 'Widmark-Grundformel'),
-                    ('Einzelgetränk-Berechnung', calculation_details.get('individual_peaks', ''), 'Separate Pharmakodynamik je Getränk'),
-                    ('Körperfett-Korrektur', calculation_details.get('körperfett_korrektur', ''), 'Magermasse-Adjustierung'),
-                    ('Gesamtkurve', 'Σ(BAK_einzelgetränk_i(t))', 'Summation aller Einzelkurven über Zeit')
+                    ('Alkoholmenge bestimmen', calculation_details.get('gesamtalkohol', ''), 'Reinalkohol aus allen Getränken'),
+                    ('Verteilungsvolumen', calculation_details.get('verteilungsvolumen', ''), 'Körpergewicht × r-Faktor'),
+                    ('Einzelgetränke', calculation_details.get('einzelgetraenke', ''), 'Getrennte Resorptions-/Eliminationskurven'),
+                    ('Gesamtkurve', 'Summe aller Einzelkurven über die Zeit', 'Superposition → BAK-Verlauf')
                 ]
                 
                 for i, (titel, formel, erklärung) in enumerate(steps, 1):
@@ -763,11 +882,14 @@ class ResultsWidget(QWidget):
                 <li><b>Eliminationsdauer:</b> {result.get('elimination_time', '--')}</li>
             """
             
+            if result.get('time_to_05'):
+                html_content += f"<li><b>Unter 0,5 ‰ ab:</b> {result.get('time_to_05').strftime('%H:%M')} Uhr (Grenze Ordnungswidrigkeit)</li>"
+
             if result.get('time_to_03'):
-                html_content += f"<li><b>Fahrtüchtig ab:</b> {result.get('time_to_03').strftime('%H:%M')} Uhr (BAK < 0.5‰)</li>"
-            
+                html_content += f"<li><b>Unter 0,3 ‰ ab:</b> {result.get('time_to_03').strftime('%H:%M')} Uhr (relative Fahruntüchtigkeit)</li>"
+
             if result.get('time_to_00'):
-                html_content += f"<li><b>Nüchtern ab:</b> {result.get('time_to_00').strftime('%H:%M')} Uhr (BAK ≈ 0.0‰)</li>"
+                html_content += f"<li><b>Nüchtern (≈0,0 ‰) ab:</b> {result.get('time_to_00').strftime('%H:%M')} Uhr</li>"
             
             html_content += """
             </ul>

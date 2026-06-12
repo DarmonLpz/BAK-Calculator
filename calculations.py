@@ -1,169 +1,230 @@
+"""
+Berechnungs-Engine des BAK-Kalkulators.
+
+Diese Datei enthält die EINZIGE, echte Berechnungslogik. Sie modelliert für
+jedes Getränk eine eigene Resorptions- (linearer Anstieg bis zum Peak) und
+eine Eliminationsphase (linearer Abbau nach Zero-Order-Kinetik). Die
+Einzelkurven werden zur Gesamtkurve aufsummiert (Superposition).
+
+Alle vom Benutzer gewählten Einstellungen (Eliminationsrate, Resorptions-
+defizit, Resorptionsdauer, Mahlzeit) wirken sich direkt auf das Ergebnis aus.
+"""
+
 from datetime import datetime, timedelta
-from typing import List, Tuple
-from models import Person, Drink, CalculationSettings, BACResult, BAKModel, Gender, ResorptionMode
+from typing import Dict, List, Optional
+
+from models import (
+    Person, Drink, CalculationSettings, BAKModel, Gender,
+    ETHANOL_DENSITY,
+)
+
 
 class BACCalculator:
-    def __init__(self):
-        self.person = None
-        self.drinks: List[Drink] = []
-        self.settings = None
-    
-    def set_person(self, person: Person):
-        self.person = person
-    
-    def add_drink(self, drink: Drink):
-        self.drinks.append(drink)
-    
-    def set_settings(self, settings: CalculationSettings):
-        self.settings = settings
-    
-    def calculate_bac(self) -> List[Tuple[datetime, float]]:
-        """Berechnet den BAK-Verlauf über die Zeit"""
-        if not all([self.person, self.drinks, self.settings]):
-            raise ValueError("Nicht alle erforderlichen Daten sind vorhanden")
-        
-        # Sortiere Getränke nach Zeit
-        sorted_drinks = sorted(self.drinks, key=lambda x: x.time)
-        start_time = sorted_drinks[0].time
-        end_time = start_time + timedelta(hours=24)  # 24 Stunden Vorhersage
-        
-        # Berechne Zeitpunkte im 15-Minuten-Intervall
-        time_points = []
-        current_time = start_time
-        while current_time <= end_time:
-            time_points.append(current_time)
-            current_time += timedelta(minutes=15)
-        
-        # Berechne BAK für jeden Zeitpunkt
-        bac_values = []
-        for time_point in time_points:
-            bac = self._calculate_bac_at_time(time_point)
-            bac_values.append((time_point, bac))
-        
-        return bac_values
-    
-    def _calculate_bac_at_time(self, time_point: datetime) -> float:
-        """Berechnet die BAK zu einem bestimmten Zeitpunkt"""
-        # Berechne Gesamtalkoholmenge bis zu diesem Zeitpunkt
-        total_alcohol = sum(
-            drink.volume * (drink.alcohol_content / 100) * 0.8  # 0.8 g/ml Dichte von Alkohol
-            for drink in self.drinks
-            if drink.time <= time_point
-        )
-        
-        # Berechne Verteilungsfaktor r
-        r = self._calculate_distribution_factor()
-        
-        # Berechne Abbaurate
-        elimination_rate = self._calculate_elimination_rate()
-        
-        # Berechne Resorptionszeit
-        resorption_time = self._calculate_resorption_time()
-        
-        # Berücksichtige Resorptionsdefizit vor der Modellberechnung
-        effective_alcohol = total_alcohol * (1 - self.settings.resorption_deficit / 100)
-        
-        # Berechne BAK nach dem gewählten Modell
-        if self.settings.model == "Widmark":
-            bac = self._calculate_widmark(effective_alcohol, r, elimination_rate, time_point)
-        elif self.settings.model == "Watson":
-            bac = self._calculate_watson(effective_alcohol, r, elimination_rate, time_point)
-        elif self.settings.model == "Forrest":
-            bac = self._calculate_forrest(effective_alcohol, r, elimination_rate, time_point)
-        elif self.settings.model == "Seidl":
-            bac = self._calculate_seidl(effective_alcohol, r, elimination_rate, time_point)
-        else:
-            raise ValueError(f"Unbekanntes Berechnungsmodell: {self.settings.model}")
-        
-        return max(0, bac)  # BAK kann nicht negativ sein
-    
-    def _calculate_distribution_factor(self) -> float:
-        """Berechnet den Verteilungsfaktor r"""
-        if hasattr(self.settings, 'model') and self.settings.model == "Watson":
-            # Watson-Gleichung für Körperwasseranteil
-            if self.person.gender == Gender.MALE:
-                tbw = 2.447 - 0.09516 * self.person.age + 0.1074 * self.person.height + 0.3362 * self.person.weight
+    """Wissenschaftliche BAK-Berechnung mit Einzelgetränk-Pharmakodynamik."""
+
+    # ------------------------------------------------------------------ #
+    # Verteilungsfaktor r je Modell
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def distribution_factor(model: BAKModel, person: Person) -> float:
+        """Verteilungsfaktor r (L/kg) abhängig vom gewählten Modell."""
+        is_male = person.gender == Gender.MALE
+
+        if model == BAKModel.WIDMARK:
+            # Klassische, feste Faktoren (Gullberg & Jones)
+            r = 0.68 if is_male else 0.55
+
+        elif model == BAKModel.WATSON:
+            # Anthropometrisch über das Gesamtkörperwasser (TBW)
+            if is_male:
+                tbw = (2.447 - 0.09516 * person.age
+                       + 0.1074 * person.height + 0.3362 * person.weight)
             else:
-                tbw = -2.097 + 0.1069 * self.person.height + 0.2466 * self.person.weight
-            return tbw / (0.8 * self.person.weight)
+                tbw = (-2.097 + 0.1069 * person.height
+                       + 0.2466 * person.weight)
+            # Umrechnung TBW -> Widmark-r: Blut besteht zu ~80 % aus Wasser
+            r = tbw / (0.8 * person.weight) if person.weight > 0 else 0.6
+
+        elif model == BAKModel.FORREST:
+            # Widmark-Basis mit Alters- und Körperfettkorrektur
+            base = 0.68 if is_male else 0.55
+            age_factor = max(0.80, 1.0 - 0.01 * max(0, person.age - 20))
+            fat_factor = max(0.80, 1.0 - 0.01 * (person.body_fat - 20))
+            r = base * age_factor * fat_factor
+
+        elif model == BAKModel.SEIDL:
+            # Originale Seidl-Regression (2000), Größe in cm, Gewicht in kg
+            if is_male:
+                r = 0.31608 - 0.004821 * person.weight + 0.004432 * person.height
+            else:
+                r = 0.31223 - 0.006446 * person.weight + 0.004466 * person.height
         else:
-            # Standard-Widmark-Faktor
-            return 0.7 if self.person.gender == Gender.MALE else 0.6
-    
-    def _calculate_elimination_rate(self) -> float:
-        """Berechnet die Abbaurate in ‰/h"""
-        if hasattr(self.settings, 'elimination_rate') and self.settings.elimination_rate == "Auto":
-            base_rate = 0.15  # Standardwert
-            # Anpassung nach Geschlecht
-            if self.person.gender == Gender.FEMALE:
-                base_rate *= 1.1
-            # Anpassung nach Trinkgewohnheit
-            if hasattr(self.person, 'drinking_habit') and self.person.drinking_habit == "Häufig":
-                base_rate *= 1.25
-            return base_rate
-        else:
-            return getattr(self.settings, 'manual_elimination_rate', 0.15) / 100  # Umrechnung in ‰/h
-    
-    def _calculate_resorption_time(self) -> float:
-        """Berechnet die Resorptionszeit in Stunden"""
-        if hasattr(self.settings, 'resorption_time') and self.settings.resorption_time == "Auto":
-            return 1.0 if getattr(self.settings, 'meal_status', '') == "Nüchtern" else 1.5
-        else:
-            return 1.0  # Standardwert
-    
-    def _calculate_widmark(self, total_alcohol: float, r: float, elimination_rate: float, time_point: datetime) -> float:
-        """Berechnet BAK nach der Widmark-Formel"""
-        hours_passed = (time_point - self.drinks[0].time).total_seconds() / 3600
-        return (total_alcohol / (r * self.person.weight)) - (elimination_rate * hours_passed)
-    
-    def _calculate_watson(self, total_alcohol: float, r: float, elimination_rate: float, time_point: datetime) -> float:
-        """Berechnet BAK nach der Watson-Gleichung"""
-        # Watson verwendet bereits den angepassten r-Wert
-        return self._calculate_widmark(total_alcohol, r, elimination_rate, time_point)
-    
-    def _calculate_forrest(self, total_alcohol: float, r: float, elimination_rate: float, time_point: datetime) -> float:
-        """Berechnet BAK nach dem Forrest-Modell"""
-        # Berechne BMI
-        bmi = self.person.weight / ((self.person.height / 100) ** 2)
-        
-        # Korrigiere r basierend auf BMI
-        if bmi < 18.5:
-            r_corrected = r * 1.15
-        elif bmi <= 25:
-            r_corrected = r
-        elif bmi <= 30:
-            r_corrected = r * 0.9
-        else:
-            r_corrected = r * 0.85
-        
-        return self._calculate_widmark(total_alcohol, r_corrected, elimination_rate, time_point)
-    
-    def _calculate_seidl(self, total_alcohol: float, r: float, elimination_rate: float, time_point: datetime) -> float:
-        """Berechnet BAK nach dem Seidl-Modell"""
-        # Kombiniere Watson und Forrest
-        bmi = self.person.weight / ((self.person.height / 100) ** 2)
-        
-        if bmi < 18.5:
-            r_corrected = r * 1.15
-        elif bmi <= 25:
-            r_corrected = r
-        elif bmi <= 30:
-            r_corrected = r * 0.9
-        else:
-            r_corrected = r * 0.85
-        
-        return self._calculate_widmark(total_alcohol, r_corrected, elimination_rate, time_point)
-    
-    def get_peak_bac(self) -> Tuple[datetime, float]:
-        """Berechnet den maximalen BAK-Wert und den Zeitpunkt"""
-        bac_values = self.calculate_bac()
-        peak_time, peak_bac = max(bac_values, key=lambda x: x[1])
-        return peak_time, peak_bac
-    
-    def get_time_to_sober(self, threshold: float = 0.3) -> datetime:
-        """Berechnet den Zeitpunkt, zu dem die BAK unter einen bestimmten Wert fällt"""
-        bac_values = self.calculate_bac()
-        for time_point, bac in bac_values:
-            if bac <= threshold:
-                return time_point
-        return bac_values[-1][0]  # Falls nicht erreicht, gib den letzten Zeitpunkt zurück 
+            r = 0.68 if is_male else 0.55
+
+        # Auf physiologisch sinnvollen Bereich begrenzen
+        return max(0.40, min(0.90, r))
+
+    # ------------------------------------------------------------------ #
+    # Hauptberechnung
+    # ------------------------------------------------------------------ #
+    def calculate(self, person: Person, drinks: List[Drink],
+                  settings: CalculationSettings,
+                  models: List[BAKModel],
+                  now: Optional[datetime] = None) -> Dict[str, dict]:
+        """Berechnet die Ergebnisse für alle gewählten Modelle.
+
+        Rückgabe: ``{modellname: ergebnis_dict}``
+        """
+        if not person or not drinks or not models:
+            return {}
+
+        now = now or datetime.now()
+        results: Dict[str, dict] = {}
+        for model in models:
+            results[model.value] = self._calculate_model(
+                person, drinks, settings, model, now
+            )
+        return results
+
+    # ------------------------------------------------------------------ #
+    def _calculate_model(self, person, drinks, settings, model, now) -> dict:
+        r = self.distribution_factor(model, person)
+        elimination_rate = settings.elimination_rate          # ‰/h
+        absorption_hours = max(settings.absorption_minutes, 1) / 60.0
+        deficit_factor = max(0.0, 1.0 - settings.resorption_deficit / 100.0)
+
+        total_alcohol = sum(d.get_alcohol_grams() for d in drinks)
+        effective_alcohol = total_alcohol * deficit_factor
+
+        # Einzelgetränk-Beiträge vorbereiten
+        contributions = []
+        for i, drink in enumerate(sorted(drinks, key=lambda d: d.time)):
+            grams = drink.get_alcohol_grams() * deficit_factor
+            peak_contrib = grams / (person.weight * r) if person.weight > 0 else 0.0
+            contributions.append({
+                'index': i,
+                'name': drink.name,
+                'grams': drink.get_alcohol_grams(),
+                'effective_grams': grams,
+                'consumption_time': drink.time,
+                'peak_time': drink.time + timedelta(hours=absorption_hours),
+                'peak_contribution': peak_contrib,
+                'absorption_hours': absorption_hours,
+            })
+
+        first_time = min(c['consumption_time'] for c in contributions)
+        last_time = max(c['consumption_time'] for c in contributions)
+
+        def bac_at(t: datetime) -> float:
+            """Gesamt-BAK zu einem beliebigen Zeitpunkt (Superposition)."""
+            total = 0.0
+            for c in contributions:
+                if t < c['consumption_time']:
+                    continue
+                if t <= c['peak_time']:
+                    # Resorptionsphase: linearer Anstieg auf den Peak
+                    elapsed = (t - c['consumption_time']).total_seconds() / 3600
+                    frac = elapsed / c['absorption_hours'] if c['absorption_hours'] > 0 else 1.0
+                    total += c['peak_contribution'] * min(1.0, max(0.0, frac))
+                else:
+                    # Eliminationsphase: linearer Abbau ab dem Peak
+                    hrs = (t - c['peak_time']).total_seconds() / 3600
+                    total += max(0.0, c['peak_contribution'] - elimination_rate * hrs)
+            return total
+
+        # Zeitraster (5-Minuten-Schritte) für Diagramm und Kennzahlen
+        start = first_time - timedelta(minutes=30)
+        # Endzeitpunkt: bis sicher nüchtern, mindestens 2 h nach "jetzt"
+        peak_total = sum(c['peak_contribution'] for c in contributions)
+        sober_h = (peak_total / elimination_rate) if elimination_rate > 0 else 12
+        end = max(now + timedelta(hours=2),
+                  last_time + timedelta(hours=absorption_hours + sober_h + 1))
+
+        bac_values = []
+        step = timedelta(minutes=5)
+        t = start
+        while t <= end:
+            bac_values.append((t, round(bac_at(t), 4)))
+            t += step
+
+        # Peak ermitteln
+        peak_time, peak_bac = max(bac_values, key=lambda p: p[1])
+
+        # Aktuelle BAK (direkt am Zeitpunkt "jetzt" ausgewertet)
+        current_bac = bac_at(now) if start <= now <= end else 0.0
+
+        # Zeitpunkte des Unterschreitens der Grenzwerte (nach dem Peak)
+        time_to_05 = self._crossing_after(bac_values, peak_time, 0.5)
+        time_to_03 = self._crossing_after(bac_values, peak_time, 0.3)
+        time_to_00 = self._crossing_after(bac_values, peak_time, 0.005)
+
+        # Einzelbeiträge zum Zeitpunkt "jetzt" (für die Detailanalyse)
+        individual = []
+        for c in contributions:
+            cur = 0.0
+            if now >= c['consumption_time']:
+                if now <= c['peak_time']:
+                    elapsed = (now - c['consumption_time']).total_seconds() / 3600
+                    frac = elapsed / c['absorption_hours'] if c['absorption_hours'] > 0 else 1.0
+                    cur = c['peak_contribution'] * min(1.0, max(0.0, frac))
+                else:
+                    hrs = (now - c['peak_time']).total_seconds() / 3600
+                    cur = max(0.0, c['peak_contribution'] - elimination_rate * hrs)
+            individual.append({
+                'drink_number': c['index'] + 1,
+                'name': c['name'],
+                'alcohol_grams': c['grams'],
+                'consumption_time': c['consumption_time'].strftime('%d.%m. %H:%M'),
+                'peak_bac': c['peak_contribution'],
+                'peak_time': c['peak_time'].strftime('%H:%M'),
+                'current_contribution': cur,
+                'resorption_duration': c['absorption_hours'],
+            })
+
+        elimination_time = (f"{current_bac / elimination_rate:.1f} Stunden"
+                            if current_bac > 0 and elimination_rate > 0
+                            else "Bereits nüchtern")
+
+        return {
+            'model': model.value,
+            'peak_bac': round(peak_bac, 3),
+            'peak_time': peak_time.strftime('%H:%M'),
+            'peak_time_obj': peak_time,
+            'current_bac': round(current_bac, 3),
+            'r_factor': round(r, 3),
+            'elimination_rate': round(elimination_rate, 3),
+            'absorption_minutes': round(absorption_hours * 60),
+            'resorption_deficit': settings.resorption_deficit,
+            'meal_status': settings.meal_status,
+            'alcohol_grams': round(total_alcohol, 1),
+            'effective_alcohol_grams': round(effective_alcohol, 1),
+            'person_weight': person.weight,
+            'elimination_time': elimination_time,
+            'time_to_05': time_to_05,
+            'time_to_03': time_to_03,
+            'time_to_00': time_to_00,
+            'bac_values': bac_values,
+            'individual_contributions': individual,
+            'total_drinks': len(drinks),
+            'calculation_details': {
+                'verteilungsvolumen': (
+                    f"{person.weight} kg × {r:.3f} = "
+                    f"{person.weight * r:.1f} L Verteilungsvolumen"),
+                'gesamtalkohol': (
+                    f"{total_alcohol:.1f} g Reinalkohol, davon nach "
+                    f"{settings.resorption_deficit:.0f}% Resorptionsdefizit "
+                    f"{effective_alcohol:.1f} g wirksam"),
+                'einzelgetraenke': (
+                    f"{len(drinks)} Getränk(e) mit eigener Resorptions- und "
+                    f"Eliminationskurve, summiert zur Gesamtkurve"),
+            },
+        }
+
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def _crossing_after(bac_values, peak_time, threshold) -> Optional[datetime]:
+        """Erster Zeitpunkt NACH dem Peak, an dem die BAK <= threshold ist."""
+        for t, bac in bac_values:
+            if t >= peak_time and bac <= threshold:
+                return t
+        return None

@@ -554,24 +554,4 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         """Behandelt das Schließen des Fensters"""
         self.save_user_preferences()
-        event.accept()
-    
-    def update_bac_plot(self):
-        """Aktualisiert die BAK-Kurve"""
-        drinks_data = self.drinks_widget.get_drinks_data()
-        if not drinks_data:
-            return
-        
-        # Hole Personendaten
-        weight = self.person_widget.get_weight()
-        gender = self.person_widget.get_gender()
-        height = self.person_widget.get_height()
-        age = self.person_widget.get_age()
-        
-        # Berechne BAK-Kurve
-        times, bac_values, drink_times = self.calculation_controller.calculate_bac_curve(
-            drinks_data, weight, gender, height, age
-        )
-        
-        # Zeichne Kurve
-        self.bac_plot_widget.plot_bac_curve(times, bac_values, drink_times) 
+        event.accept() 
