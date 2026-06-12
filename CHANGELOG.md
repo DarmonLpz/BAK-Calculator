@@ -4,8 +4,8 @@
 
 ### 🤖 Neue Funktion: KI-gestützte Textanalyse
 - **Neuer Tab „KI-Analyse"**: Freitext (z. B. Exploration zum Trinkverhalten
-  am Delikttag) einfügen – Claude (Anthropic API, Modell Claude Opus 4.8)
-  filtert daraus strukturiert heraus:
+  am Delikttag) einfügen – Claude (Anthropic API, günstiges Modell
+  Claude Haiku 4.5) filtert daraus strukturiert heraus:
   - alle konsumierten Getränke (Art, Menge, Alkoholgehalt, Uhrzeit)
   - Personendaten (Geschlecht, Alter, Größe, Gewicht), sofern genannt
   - den gemessenen Blutalkoholwert samt Entnahmezeitpunkt und Methode

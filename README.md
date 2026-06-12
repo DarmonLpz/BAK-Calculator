@@ -17,8 +17,8 @@ Ein wissenschaftlicher Blutalkohol-Kalkulator mit moderner PyQt6-GUI.
 
 ## KI-Analyse einrichten
 
-Die KI-Funktion nutzt die Anthropic-API (Modell Claude Opus 4.8). Dafür wird
-ein API-Schlüssel benötigt:
+Die KI-Funktion nutzt die Anthropic-API (günstiges Modell Claude Haiku 4.5).
+Dafür wird ein API-Schlüssel benötigt:
 
 ```bash
 export ANTHROPIC_API_KEY="sk-ant-..."

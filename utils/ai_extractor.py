@@ -23,8 +23,8 @@ import os
 from datetime import datetime, timedelta
 from typing import List, Optional, Tuple
 
-# Bevorzugtes Modell (gemäß Anthropic-Empfehlung das leistungsstärkste Opus).
-MODEL = "claude-opus-4-8"
+# Günstiges, für Extraktion gut geeignetes Modell (unterstützt Structured Outputs).
+MODEL = "claude-haiku-4-5"
 
 # Abhängigkeiten optional importieren, damit der Rechner auch ohne installiertes
 # anthropic-/pydantic-Paket startet (die KI-Funktion ist dann nur deaktiviert).
