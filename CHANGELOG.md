@@ -1,5 +1,24 @@
 # BAK-Kalkulator - Änderungsprotokoll
 
+## Version 2.2.0 - KI-Analyse von Explorationstexten (2026-06-12)
+
+### 🤖 Neue Funktion: KI-gestützte Textanalyse
+- **Neuer Tab „KI-Analyse"**: Freitext (z. B. Exploration zum Trinkverhalten
+  am Delikttag) einfügen – Claude (Anthropic API, Modell Claude Opus 4.8)
+  filtert daraus strukturiert heraus:
+  - alle konsumierten Getränke (Art, Menge, Alkoholgehalt, Uhrzeit)
+  - Personendaten (Geschlecht, Alter, Größe, Gewicht), sofern genannt
+  - den gemessenen Blutalkoholwert samt Entnahmezeitpunkt und Methode
+- Die erkannten Angaben werden **automatisch** in den Rechner übernommen, die
+  Berechnung gestartet und die **Plausibilität gegen den Messwert** geprüft.
+- Robuste Erkennung deutscher Maße (Maß, Halbe, Kurzer …) und Standard-
+  Alkoholgehalte; getroffene Annahmen werden transparent ausgewiesen.
+- Umsetzung über das offizielle Anthropic-SDK mit **Structured Outputs**;
+  API-Schlüssel über `ANTHROPIC_API_KEY`. Ohne Schlüssel/Paket bleibt der
+  Rechner voll funktionsfähig (Funktion deaktiviert mit Hinweis).
+
+---
+
 ## Version 2.1.0 - Komplettüberarbeitung: korrekte Berechnung & verständliche Auswertung (2026-06-12)
 
 ### 🐞 Behobene kritische Fehler

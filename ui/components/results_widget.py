@@ -1109,6 +1109,21 @@ class ResultsWidget(QWidget):
         # Verhältnis: 30% Eingabe, 70% Ergebnisse
         input_group.setMaximumHeight(200)
 
+    def set_measurement(self, measurement: dict):
+        """Setzt die gemessenen BAK-Werte (z. B. aus der KI-Analyse)."""
+        dt = measurement.get("datetime")
+        if dt:
+            self.measurement_date.setDate(QDate(dt.year, dt.month, dt.day))
+            self.measurement_time.setTime(QTime(dt.hour, dt.minute))
+        bac = measurement.get("bac")
+        if bac is not None:
+            self.measured_bac.setValue(float(bac))
+        method = measurement.get("method")
+        if method:
+            idx = self.measurement_method.findText(method)
+            if idx >= 0:
+                self.measurement_method.setCurrentIndex(idx)
+
     def perform_validation(self):
         """Führt die forensische Validierung durch"""
         if not self.results_data:
